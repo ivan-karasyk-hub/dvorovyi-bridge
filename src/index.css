@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+  height: 100dvh;
+  margin: 0;
+  padding: 0;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.felt-table {
+  background: radial-gradient(circle at 50% 42%, #195e39 0%, #0f3822 58%, #071e12 100%);
+}
+
+.safe-top {
+  padding-top: max(env(safe-area-inset-top), 8px);
+}
+
+.safe-bottom {
+  padding-bottom: max(env(safe-area-inset-bottom), 10px);
+}
+
+/* Hide scrollbars for horizontal card strip on small screens */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
