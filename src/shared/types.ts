@@ -73,7 +73,8 @@ export type GameAction =
   | { type: 'CHOOSE_SUIT'; playerId: string; suit: Suit }
   | { type: 'DECLARE_BRIDGE'; playerId: string }
   | { type: 'DECLINE_BRIDGE'; playerId: string }
-  | { type: 'START_NEXT_ROUND'; playerId: string };
+  | { type: 'START_NEXT_ROUND'; playerId: string }
+  | { type: 'REMATCH'; playerId: string };
 
 /** Multiplayer WebSocket protocol */
 export interface RoomPlayerInfo {

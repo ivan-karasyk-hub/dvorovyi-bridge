@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   Eye,
@@ -8,6 +8,10 @@ import {
   Sparkles,
   ArrowRight,
   Layers,
+  HelpCircle,
+  Volume2,
+  VolumeX,
+  RotateCcw,
 } from 'lucide-react';
 import type { Card, GameAction, GameState, Player, Suit } from '../shared/types';
 import {
@@ -19,7 +23,16 @@ import {
 import { PlayingCard } from './PlayingCard';
 import { SuitPickerModal } from './SuitPickerModal';
 import { ScoreboardModal } from './ScoreboardModal';
+import { RulesModal } from './RulesModal';
 import { triggerHaptic } from '../utils/telegram';
+import {
+  isSoundEnabled,
+  playBridgeSound,
+  playCardSound,
+  playDrawSound,
+  playSpecialSound,
+  setSoundEnabled,
+} from '../utils/sound';
 
 interface GameTableProps {
   state: GameState;
@@ -40,7 +53,12 @@ export const GameTable: React.FC<GameTableProps> = ({
 }) => {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showScoreboard, setShowScoreboard] = useState(false);
+  const [showRules, setShowRules] = useState(false);
+  const [soundOn, setSoundOn] = useState(() => isSoundEnabled());
   const [sandboxRevealAll, setSandboxRevealAll] = useState(true);
+  const prevDiscardLenRef = useRef(state.discardPile.length);
+  const prevDeckLenRef = useRef(state.deck.length);
+  const prevPhaseRef = useRef(state.phase);
 
   // In Sandbox mode, South seat follows the active player so you can test every turn
   const southIndex = useMemo(() => {
@@ -56,6 +74,33 @@ export const GameTable: React.FC<GameTableProps> = ({
   useEffect(() => {
     setSelectedIds([]);
   }, [state.currentPlayerIndex, state.phase, state.round, state.discardPile.length]);
+
+  // Sound effects on game state transitions
+  useEffect(() => {
+    if (state.phase === 'round_over' || state.phase === 'match_over' || state.phase === 'bridge_choice') {
+      if (prevPhaseRef.current !== state.phase) {
+        playBridgeSound();
+      }
+    } else if (state.discardPile.length > prevDiscardLenRef.current) {
+      const top = state.discardPile[state.discardPile.length - 1];
+      if (top && (top.rank === '7' || top.rank === 'J' || (top.rank === 'K' && top.suit === 'spades'))) {
+        playSpecialSound();
+      } else {
+        playCardSound();
+      }
+    } else if (state.deck.length < prevDeckLenRef.current) {
+      playDrawSound();
+    }
+    prevDiscardLenRef.current = state.discardPile.length;
+    prevDeckLenRef.current = state.deck.length;
+    prevPhaseRef.current = state.phase;
+  }, [state.discardPile, state.deck.length, state.phase]);
+
+  const toggleSound = () => {
+    const next = !soundOn;
+    setSoundOn(next);
+    setSoundEnabled(next);
+  };
 
   // Arrange opponents clockwise starting after southIndex
   const opponents = useMemo(() => {
@@ -172,23 +217,38 @@ export const GameTable: React.FC<GameTableProps> = ({
             <button
               type="button"
               onClick={() => setSandboxRevealAll((v) => !v)}
-              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition ${
+              className={`flex items-center gap-1 px-2 py-1.5 rounded-xl text-xs font-semibold border transition ${
                 sandboxRevealAll
                   ? 'bg-sky-400/20 border-sky-400/40 text-sky-200'
                   : 'bg-white/10 border-white/10 text-white/75'
               }`}
             >
               {sandboxRevealAll ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-              <span className="hidden sm:inline">Карти</span>
             </button>
           )}
           <button
             type="button"
+            onClick={toggleSound}
+            className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white/85 active:scale-95 transition"
+            title={soundOn ? 'Вимкнути звук' : 'Увімкнути звук'}
+          >
+            {soundOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4 text-white/45" />}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowRules(true)}
+            className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-sky-300 active:scale-95 transition"
+            title="Правила гри"
+          >
+            <HelpCircle className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
             onClick={() => setShowScoreboard(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-400/20 hover:bg-amber-400/30 border border-amber-400/30 text-amber-200 text-xs font-bold active:scale-95 transition"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-400/20 hover:bg-amber-400/30 border border-amber-400/30 text-amber-200 text-xs font-bold active:scale-95 transition"
           >
             <Trophy className="w-3.5 h-3.5" />
-            Рахунок
+            <span className="hidden xs:inline">Рахунок</span>
           </button>
         </div>
       </header>
@@ -490,6 +550,9 @@ export const GameTable: React.FC<GameTableProps> = ({
         <ScoreboardModal state={state} onClose={() => setShowScoreboard(false)} />
       )}
 
+      {/* Rules Modal */}
+      {showRules && <RulesModal onClose={() => setShowRules(false)} />}
+
       {/* Round Over / Match Over Modal */}
       {(state.phase === 'round_over' || state.phase === 'match_over') && (
         <div className="fixed inset-0 z-40 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
@@ -567,13 +630,23 @@ export const GameTable: React.FC<GameTableProps> = ({
                 Наступний раунд
               </button>
             ) : (
-              <button
-                type="button"
-                onClick={onLeave}
-                className="w-full py-3 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-extrabold text-sm shadow-lg active:scale-95 transition"
-              >
-                Повернутися в лобі
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={onLeave}
+                  className="px-4 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold text-sm active:scale-95 transition"
+                >
+                  У лобі
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onAction({ type: 'REMATCH', playerId: southPlayer.id })}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-extrabold text-sm shadow-lg active:scale-95 transition"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  Реванш
+                </button>
+              </div>
             )}
           </motion.div>
         </div>

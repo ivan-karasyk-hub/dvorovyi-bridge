@@ -657,6 +657,11 @@ export function applyAction(
     return dealRound(state, nextDealer, rng);
   }
 
+  if (action.type === 'REMATCH') {
+    if (state.phase !== 'match_over') return state;
+    return createMatch(state.players, rng);
+  }
+
   const activePlayer = state.players[state.currentPlayerIndex];
   if (!activePlayer || activePlayer.id !== action.playerId) {
     return state;
