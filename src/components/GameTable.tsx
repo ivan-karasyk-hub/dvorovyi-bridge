@@ -68,6 +68,7 @@ export const GameTable: React.FC<GameTableProps> = ({
   }, [isSandbox, myPlayerId, state.currentPlayerIndex, state.players]);
 
   const southPlayer = state.players[southIndex];
+  const activePlayer = state.players[state.currentPlayerIndex];
   const isMyTurn = state.currentPlayerIndex === southIndex;
 
   // Clear selection whenever turn or phase changes
@@ -313,8 +314,33 @@ export const GameTable: React.FC<GameTableProps> = ({
         })}
       </div>
 
-      {/* Center Table: Event Log + Deck & Discard + Active Suit */}
-      <div className="flex-1 flex flex-col items-center justify-center px-3 py-2 gap-3 min-h-0">
+      {/* Center Table: Turn Banner + Event Log + Deck & Discard + Active Suit */}
+      <div className="flex-1 flex flex-col items-center justify-center px-3 py-2 gap-2.5 min-h-0">
+        {/* Prominent Current Turn Indicator */}
+        {(state.phase === 'playing' ||
+          state.phase === 'must_cover_six' ||
+          state.phase === 'choosing_suit' ||
+          state.phase === 'bridge_choice') && (
+          <div
+            className={`px-3.5 py-1 rounded-full text-xs font-extrabold tracking-wide border shadow-sm flex items-center gap-1.5 ${
+              isMyTurn && !isSandbox
+                ? 'bg-amber-400 text-slate-950 border-amber-200 animate-pulse'
+                : 'bg-black/45 text-amber-200 border-amber-400/35'
+            }`}
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                isMyTurn && !isSandbox ? 'bg-slate-950' : 'bg-amber-400 animate-pulse'
+              }`}
+            />
+            {isMyTurn && !isSandbox
+              ? state.phase === 'must_cover_six'
+                ? 'Твій хід — покрий 6!'
+                : 'Твій хід!'
+              : `Зараз ходить: ${activePlayer.name}`}
+          </div>
+        )}
+
         {/* Event Log Banner */}
         <div className="w-full max-w-md space-y-1">
           {latestLog && (
