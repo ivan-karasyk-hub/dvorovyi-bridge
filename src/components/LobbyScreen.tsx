@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Users, Play, Copy, Check, Eye, Plus, LogIn, Wifi, WifiOff, Bot, X } from 'lucide-react';
+import { Users, Play, Copy, Check, Eye, Plus, LogIn, Wifi, WifiOff, Bot, X, Send } from 'lucide-react';
 import type { RoomInfo } from '../shared/types';
+import { getRoomInviteUrl, shareRoomInTelegram } from '../utils/telegram';
 
 interface LobbyScreenProps {
   playerName: string;
@@ -41,13 +42,12 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
 
   const handleCopyInvite = async () => {
     if (!room) return;
-    const url = `${window.location.origin}${window.location.pathname}?room=${room.code}`;
+    const url = getRoomInviteUrl(room.code);
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Fallback: copy code only
       await navigator.clipboard.writeText(room.code).catch(() => {});
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -69,14 +69,25 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                 {room.code}
               </div>
             </div>
-            <button
-              type="button"
-              onClick={handleCopyInvite}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold text-white active:scale-95 transition"
-            >
-              {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-              {copied ? 'Скопійовано' : 'Посилання'}
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => shareRoomInTelegram(room.code)}
+                className="flex items-center gap-1 px-2.5 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-xs font-bold text-white active:scale-95 transition shadow"
+                title="Обрати контакт або чат у Telegram"
+              >
+                <Send className="w-3.5 h-3.5" />
+                У ТГ
+              </button>
+              <button
+                type="button"
+                onClick={handleCopyInvite}
+                className="flex items-center gap-1 px-2.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold text-white active:scale-95 transition"
+              >
+                {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                {copied ? 'Ок' : 'Лінк'}
+              </button>
+            </div>
           </div>
 
           <div className="space-y-2">

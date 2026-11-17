@@ -67,6 +67,32 @@ export function triggerHaptic(style: 'light' | 'medium' | 'heavy' = 'light'): vo
   }
 }
 
+export function getRoomInviteUrl(roomCode: string): string {
+  const botUsername = import.meta.env.VITE_TG_BOT_USERNAME as string | undefined;
+  const appShortName = import.meta.env.VITE_TG_APP_SHORT_NAME as string | undefined;
+  if (botUsername) {
+    const cleanBot = botUsername.replace(/^@/, '');
+    if (appShortName) {
+      return `https://t.me/${cleanBot}/${appShortName}?startapp=room_${roomCode}`;
+    }
+    return `https://t.me/${cleanBot}?startapp=room_${roomCode}`;
+  }
+  return `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
+}
+
+export function shareRoomInTelegram(roomCode: string): void {
+  const inviteUrl = getRoomInviteUrl(roomCode);
+  const text = `Залітай у Дворовий Бридж! Код кімнати: ${roomCode}`;
+  const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(inviteUrl)}&text=${encodeURIComponent(text)}`;
+
+  const tg = window.Telegram?.WebApp;
+  if (tg?.openTelegramLink) {
+    tg.openTelegramLink(shareUrl);
+  } else {
+    window.open(shareUrl, '_blank', 'noopener,noreferrer');
+  }
+}
+
 export function getOrCreateLocalPlayerId(): string {
   const tgUser = getTelegramUser();
   if (tgUser) return tgUser.id;

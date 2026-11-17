@@ -65,7 +65,8 @@ function scheduleBotTurnIfNeeded(room: Room): void {
   if (
     state.phase !== 'playing' &&
     state.phase !== 'must_cover_six' &&
-    state.phase !== 'choosing_suit'
+    state.phase !== 'choosing_suit' &&
+    state.phase !== 'bridge_choice'
   ) {
     return;
   }

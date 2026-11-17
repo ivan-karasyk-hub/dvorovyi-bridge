@@ -442,6 +442,49 @@ export const GameTable: React.FC<GameTableProps> = ({
         <SuitPickerModal onSelect={handleChooseSuit} />
       )}
 
+      {/* Optional Bridge Choice Modal */}
+      {state.phase === 'bridge_choice' && isMyTurn && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="w-full max-w-xs rounded-3xl bg-[#0e2f1d] border border-amber-400/50 p-5 shadow-2xl text-center space-y-4"
+          >
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-amber-400/20 text-amber-300 mx-auto">
+              <Sparkles className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-xl font-black text-white">Склався БРИДЖ!</h3>
+              <p className="text-xs text-emerald-200/80 mt-1">
+                На столі 4 карти одного номіналу поспіль. Оголосити перемогу в раунді чи грати далі?
+              </p>
+            </div>
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic('heavy');
+                  onAction({ type: 'DECLARE_BRIDGE', playerId: southPlayer.id });
+                }}
+                className="w-full py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-sm shadow-lg active:scale-95 transition"
+              >
+                Оголосити БРИДЖ!
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic('light');
+                  onAction({ type: 'DECLINE_BRIDGE', playerId: southPlayer.id });
+                }}
+                className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold text-xs active:scale-95 transition"
+              >
+                Грати далі
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       {/* Scoreboard Modal */}
       {showScoreboard && (
         <ScoreboardModal state={state} onClose={() => setShowScoreboard(false)} />

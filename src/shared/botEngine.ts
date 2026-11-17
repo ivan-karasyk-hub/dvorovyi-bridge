@@ -31,6 +31,13 @@ export function chooseBotAction(state: GameState): GameAction | null {
   const bot = state.players[state.currentPlayerIndex];
   if (!bot || !bot.isBot) return null;
 
+  if (state.phase === 'bridge_choice') {
+    return {
+      type: 'DECLARE_BRIDGE',
+      playerId: bot.id,
+    };
+  }
+
   if (state.phase === 'choosing_suit') {
     return {
       type: 'CHOOSE_SUIT',

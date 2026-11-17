@@ -514,6 +514,137 @@ export function dealRound(
   return applyOpeningCardEffect(baseState, openingCard, firstPlayerIndex, rng);
 }
 
+function resolveSpecialEffects(
+  updatedState: GameState,
+  playedCards: Card[],
+  logs: GameLogEntry[],
+  rng: () => number,
+): GameState {
+  const activePlayer = updatedState.players[updatedState.currentPlayerIndex];
+  const lastCard = playedCards[playedCards.length - 1];
+  const players = updatedState.players.map((p) => ({ ...p, hand: [...p.hand] }));
+  let deck = [...updatedState.deck];
+  let discardPile = [...updatedState.discardPile];
+  const numPlayers = players.length;
+
+  // Check empty hand win
+  if (players[updatedState.currentPlayerIndex].hand.length === 0) {
+    return finalizeRound(updatedState, activePlayer.id, 'empty_hand', playedCards, logs);
+  }
+
+  // Apply special effect of the last played card
+  if (lastCard.rank === '6') {
+    logs.push(
+      makeLog(`${activePlayer.name} має покрити ${formatCard(lastCard)}!`, 'special'),
+    );
+    return {
+      ...updatedState,
+      phase: 'must_cover_six',
+      currentPlayerIndex: updatedState.currentPlayerIndex,
+      logs: appendLogs(updatedState.logs, ...logs),
+    };
+  }
+
+  if (lastCard.rank === 'J') {
+    return {
+      ...updatedState,
+      phase: 'choosing_suit',
+      currentPlayerIndex: updatedState.currentPlayerIndex,
+      logs: appendLogs(updatedState.logs, ...logs),
+    };
+  }
+
+  if (lastCard.rank === '7') {
+    const victimIdx = (updatedState.currentPlayerIndex + 1) % numPlayers;
+    const res = drawFromDeck(deck, discardPile, 2, rng);
+    deck = res.deck;
+    discardPile = res.discardPile;
+    players[victimIdx].hand.push(...res.drawn);
+    const nextIdx = (updatedState.currentPlayerIndex + 2) % numPlayers;
+    logs.push(
+      makeLog(
+        `${players[victimIdx].name} бере ${res.drawn.length} карти і пропускає хід.`,
+        'special',
+      ),
+    );
+    return {
+      ...updatedState,
+      players,
+      deck,
+      discardPile,
+      phase: 'playing',
+      currentPlayerIndex: nextIdx,
+      logs: appendLogs(updatedState.logs, ...logs),
+    };
+  }
+
+  if (lastCard.rank === '8') {
+    const nextIdx = (updatedState.currentPlayerIndex + 1) % numPlayers;
+    const res = drawFromDeck(deck, discardPile, 1, rng);
+    deck = res.deck;
+    discardPile = res.discardPile;
+    players[nextIdx].hand.push(...res.drawn);
+    logs.push(makeLog(`${players[nextIdx].name} бере 1 карту і ходить.`, 'special'));
+    return {
+      ...updatedState,
+      players,
+      deck,
+      discardPile,
+      phase: 'playing',
+      currentPlayerIndex: nextIdx,
+      logs: appendLogs(updatedState.logs, ...logs),
+    };
+  }
+
+  if (lastCard.rank === 'K' && lastCard.suit === 'spades') {
+    const victimIdx = (updatedState.currentPlayerIndex + 1) % numPlayers;
+    const res = drawFromDeck(deck, discardPile, 4, rng);
+    deck = res.deck;
+    discardPile = res.discardPile;
+    players[victimIdx].hand.push(...res.drawn);
+    const nextIdx = (updatedState.currentPlayerIndex + 2) % numPlayers;
+    logs.push(
+      makeLog(
+        `Король пік! ${players[victimIdx].name} бере ${res.drawn.length} карти і пропускає хід.`,
+        'special',
+      ),
+    );
+    return {
+      ...updatedState,
+      players,
+      deck,
+      discardPile,
+      phase: 'playing',
+      currentPlayerIndex: nextIdx,
+      logs: appendLogs(updatedState.logs, ...logs),
+    };
+  }
+
+  if (lastCard.rank === 'A') {
+    const skips = playedCards.length;
+    const nextIdx = (updatedState.currentPlayerIndex + 1 + skips) % numPlayers;
+    const skippedNames: string[] = [];
+    for (let s = 1; s <= skips; s++) {
+      skippedNames.push(players[(updatedState.currentPlayerIndex + s) % numPlayers].name);
+    }
+    logs.push(makeLog(`Туз! Пропускають: ${skippedNames.join(', ')}.`, 'special'));
+    return {
+      ...updatedState,
+      phase: 'playing',
+      currentPlayerIndex: nextIdx,
+      logs: appendLogs(updatedState.logs, ...logs),
+    };
+  }
+
+  const nextIdx = (updatedState.currentPlayerIndex + 1) % numPlayers;
+  return {
+    ...updatedState,
+    phase: 'playing',
+    currentPlayerIndex: nextIdx,
+    logs: appendLogs(updatedState.logs, ...logs),
+  };
+}
+
 export function applyAction(
   state: GameState,
   action: GameAction,
@@ -552,9 +683,8 @@ export function applyAction(
           : { ...p, hand: [...p.hand] },
       );
 
-      let deck = [...state.deck];
-      let discardPile = [...state.discardPile, ...playedCards];
-      const numPlayers = players.length;
+      const deck = [...state.deck];
+      const discardPile = [...state.discardPile, ...playedCards];
 
       const playedText = playedCards.map(formatCard).join(' ');
       const logs: GameLogEntry[] = [
@@ -571,143 +701,42 @@ export function applyAction(
         hasDrawnThisTurn: false,
         drawnCardId: null,
         lastPlayedIds: playedCards.map((c) => c.id),
+        lastPlayedCount: playedCards.length,
       };
 
       // Check «Бридж!» (4 same-rank cards on top of discard pile)
       if (checkBridgeOnTop(discardPile)) {
-        return finalizeRound(updatedState, activePlayer.id, 'bridge', playedCards, logs);
-      }
-
-      // Check empty hand win
-      if (players[state.currentPlayerIndex].hand.length === 0) {
-        return finalizeRound(updatedState, activePlayer.id, 'empty_hand', playedCards, logs);
-      }
-
-      // Apply special effect of the last played card
-      if (lastCard.rank === '6') {
-        logs.push(
-          makeLog(
-            `${activePlayer.name} має покрити ${formatCard(lastCard)}!`,
-            'special',
-          ),
-        );
-        return {
-          ...updatedState,
-          phase: 'must_cover_six',
-          currentPlayerIndex: state.currentPlayerIndex,
-          logs: appendLogs(state.logs, ...logs),
-        };
-      }
-
-      if (lastCard.rank === 'J') {
-        return {
-          ...updatedState,
-          phase: 'choosing_suit',
-          currentPlayerIndex: state.currentPlayerIndex,
-          logs: appendLogs(state.logs, ...logs),
-        };
-      }
-
-      if (lastCard.rank === '7') {
-        const victimIdx = (state.currentPlayerIndex + 1) % numPlayers;
-        const res = drawFromDeck(deck, discardPile, 2, rng);
-        deck = res.deck;
-        discardPile = res.discardPile;
-        players[victimIdx].hand.push(...res.drawn);
-        const nextIdx = (state.currentPlayerIndex + 2) % numPlayers;
-        logs.push(
-          makeLog(
-            `${players[victimIdx].name} бере ${res.drawn.length} карти і пропускає хід.`,
-            'special',
-          ),
-        );
-        return {
-          ...updatedState,
-          players,
-          deck,
-          discardPile,
-          phase: 'playing',
-          currentPlayerIndex: nextIdx,
-          logs: appendLogs(state.logs, ...logs),
-        };
-      }
-
-      if (lastCard.rank === '8') {
-        const nextIdx = (state.currentPlayerIndex + 1) % numPlayers;
-        const res = drawFromDeck(deck, discardPile, 1, rng);
-        deck = res.deck;
-        discardPile = res.discardPile;
-        players[nextIdx].hand.push(...res.drawn);
-        logs.push(
-          makeLog(
-            `${players[nextIdx].name} бере 1 карту і ходить.`,
-            'special',
-          ),
-        );
-        return {
-          ...updatedState,
-          players,
-          deck,
-          discardPile,
-          phase: 'playing',
-          currentPlayerIndex: nextIdx,
-          logs: appendLogs(state.logs, ...logs),
-        };
-      }
-
-      if (lastCard.rank === 'K' && lastCard.suit === 'spades') {
-        const victimIdx = (state.currentPlayerIndex + 1) % numPlayers;
-        const res = drawFromDeck(deck, discardPile, 4, rng);
-        deck = res.deck;
-        discardPile = res.discardPile;
-        players[victimIdx].hand.push(...res.drawn);
-        const nextIdx = (state.currentPlayerIndex + 2) % numPlayers;
-        logs.push(
-          makeLog(
-            `Король пік! ${players[victimIdx].name} бере ${res.drawn.length} карти і пропускає хід.`,
-            'special',
-          ),
-        );
-        return {
-          ...updatedState,
-          players,
-          deck,
-          discardPile,
-          phase: 'playing',
-          currentPlayerIndex: nextIdx,
-          logs: appendLogs(state.logs, ...logs),
-        };
-      }
-
-      if (lastCard.rank === 'A') {
-        const skips = playedCards.length;
-        const nextIdx = (state.currentPlayerIndex + 1 + skips) % numPlayers;
-        const skippedNames: string[] = [];
-        for (let s = 1; s <= skips; s++) {
-          skippedNames.push(players[(state.currentPlayerIndex + s) % numPlayers].name);
+        // If hand is already empty, end round immediately
+        if (players[state.currentPlayerIndex].hand.length === 0) {
+          return finalizeRound(updatedState, activePlayer.id, 'bridge', playedCards, logs);
         }
         logs.push(
-          makeLog(
-            `Туз! Пропускають: ${skippedNames.join(', ')}.`,
-            'special',
-          ),
+          makeLog(`${activePlayer.name} може оголосити БРИДЖ!`, 'bridge'),
         );
         return {
           ...updatedState,
-          phase: 'playing',
-          currentPlayerIndex: nextIdx,
+          phase: 'bridge_choice',
+          currentPlayerIndex: state.currentPlayerIndex,
           logs: appendLogs(state.logs, ...logs),
         };
       }
 
-      // Normal card
-      const nextIdx = (state.currentPlayerIndex + 1) % numPlayers;
-      return {
-        ...updatedState,
-        phase: 'playing',
-        currentPlayerIndex: nextIdx,
-        logs: appendLogs(state.logs, ...logs),
-      };
+      return resolveSpecialEffects(updatedState, playedCards, logs, rng);
+    }
+
+    case 'DECLARE_BRIDGE': {
+      if (state.phase !== 'bridge_choice') return state;
+      const count = state.lastPlayedCount ?? 1;
+      const playedCards = state.discardPile.slice(-count);
+      return finalizeRound(state, activePlayer.id, 'bridge', playedCards, []);
+    }
+
+    case 'DECLINE_BRIDGE': {
+      if (state.phase !== 'bridge_choice') return state;
+      const count = state.lastPlayedCount ?? 1;
+      const playedCards = state.discardPile.slice(-count);
+      const log = makeLog(`${activePlayer.name} продовжує гру без Бриджу.`);
+      return resolveSpecialEffects(state, playedCards, [log], rng);
     }
 
     case 'CHOOSE_SUIT': {

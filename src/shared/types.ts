@@ -35,6 +35,7 @@ export type TurnPhase =
   | 'playing'         // Active player can play cards or draw
   | 'must_cover_six'  // Active player played a 6 and must cover it in this same turn
   | 'choosing_suit'   // Active player played a Jack and must choose orderedSuit
+  | 'bridge_choice'   // 4 same-rank cards on top; player can declare Bridge or keep playing
   | 'round_over'      // Round ended, showing round summary before next round
   | 'match_over';     // Someone reached >= 126 points
 
@@ -58,6 +59,7 @@ export interface GameState {
   hasDrawnThisTurn: boolean;
   drawnCardId: string | null;
   lastPlayedIds: string[];
+  lastPlayedCount?: number;
   roundWinnerId: string | null;
   roundWinReason: 'empty_hand' | 'bridge' | null;
   scoreHistory: RoundScoreEntry[];
@@ -69,6 +71,8 @@ export type GameAction =
   | { type: 'DRAW_CARD'; playerId: string }
   | { type: 'PASS_TURN'; playerId: string }
   | { type: 'CHOOSE_SUIT'; playerId: string; suit: Suit }
+  | { type: 'DECLARE_BRIDGE'; playerId: string }
+  | { type: 'DECLINE_BRIDGE'; playerId: string }
   | { type: 'START_NEXT_ROUND'; playerId: string };
 
 /** Multiplayer WebSocket protocol */

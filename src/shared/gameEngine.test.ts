@@ -162,7 +162,7 @@ describe('gameEngine', () => {
     expect(after2A.currentPlayerIndex).toBe(0);
   });
 
-  it('triggers instant win on «Бридж!» (4 same-rank cards on top of discard pile)', () => {
+  it('offers optional «Бридж!» choice when 4 same-rank cards are on top of discard pile', () => {
     const state = makeTestState({
       discardPile: [c('9', 'spades'), c('9', 'hearts')],
       players: [
@@ -176,15 +176,24 @@ describe('gameEngine', () => {
         { id: 'p2', name: 'P2', hand: [c('10', 'clubs')], score: 0, connected: true },
       ],
     });
-    const res = applyAction(state, {
+    const afterPlay = applyAction(state, {
       type: 'PLAY_CARDS',
       playerId: 'p1',
       cardIds: ['9_diamonds', '9_clubs'],
     });
-    expect(res.phase).toBe('round_over');
-    expect(res.roundWinReason).toBe('bridge');
-    expect(res.roundWinnerId).toBe('p1');
-    expect(res.players[1].score).toBe(10);
+    expect(afterPlay.phase).toBe('bridge_choice');
+
+    // Option 1: Declare Bridge -> round ends with win
+    const declared = applyAction(afterPlay, { type: 'DECLARE_BRIDGE', playerId: 'p1' });
+    expect(declared.phase).toBe('round_over');
+    expect(declared.roundWinReason).toBe('bridge');
+    expect(declared.roundWinnerId).toBe('p1');
+    expect(declared.players[1].score).toBe(10);
+
+    // Option 2: Decline Bridge -> game continues to next player
+    const declined = applyAction(afterPlay, { type: 'DECLINE_BRIDGE', playerId: 'p1' });
+    expect(declined.phase).toBe('playing');
+    expect(declined.currentPlayerIndex).toBe(1);
   });
 
   it('applies Jack -20/-40 finish, exact 125 reset to 0, and >=126 defeat', () => {
