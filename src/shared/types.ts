@@ -46,9 +46,16 @@ export interface GameLogEntry {
   timestamp: number;
 }
 
+export interface WaitingPlayer {
+  id: string;
+  name: string;
+  isBot?: boolean;
+}
+
 export interface GameState {
   round: number;
   players: Player[];
+  waitingPlayers?: WaitingPlayer[];
   dealerIndex: number;
   currentPlayerIndex: number;
   deck: Card[];

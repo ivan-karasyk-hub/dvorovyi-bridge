@@ -12,6 +12,12 @@ import {
   Volume2,
   VolumeX,
   RotateCcw,
+  UserPlus,
+  Lock,
+  Send,
+  Copy,
+  Check,
+  X,
 } from 'lucide-react';
 import type { Card, GameAction, GameState, Player, Suit } from '../shared/types';
 import {
@@ -24,7 +30,12 @@ import { PlayingCard } from './PlayingCard';
 import { SuitPickerModal } from './SuitPickerModal';
 import { ScoreboardModal } from './ScoreboardModal';
 import { RulesModal } from './RulesModal';
-import { triggerHaptic } from '../utils/telegram';
+import {
+  copyTextToClipboard,
+  getRoomInviteUrl,
+  shareRoomInTelegram,
+  triggerHaptic,
+} from '../utils/telegram';
 import {
   isSoundEnabled,
   playBridgeSound,
@@ -54,11 +65,18 @@ export const GameTable: React.FC<GameTableProps> = ({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showScoreboard, setShowScoreboard] = useState(false);
   const [showRules, setShowRules] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteCopied, setInviteCopied] = useState(false);
   const [soundOn, setSoundOn] = useState(() => isSoundEnabled());
   const [sandboxRevealAll, setSandboxRevealAll] = useState(true);
   const prevDiscardLenRef = useRef(state.discardPile.length);
   const prevDeckLenRef = useRef(state.deck.length);
   const prevPhaseRef = useRef(state.phase);
+
+  const isWaitingSpectator = useMemo(
+    () => !isSandbox && (state.waitingPlayers ?? []).some((wp) => wp.id === myPlayerId),
+    [isSandbox, myPlayerId, state.waitingPlayers],
+  );
 
   // In Sandbox mode, South seat follows the active player so you can test every turn
   const southIndex = useMemo(() => {
@@ -69,7 +87,7 @@ export const GameTable: React.FC<GameTableProps> = ({
 
   const southPlayer = state.players[southIndex];
   const activePlayer = state.players[state.currentPlayerIndex];
-  const isMyTurn = state.currentPlayerIndex === southIndex;
+  const isMyTurn = !isWaitingSpectator && state.currentPlayerIndex === southIndex;
 
   // Clear selection whenever turn or phase changes
   useEffect(() => {
@@ -103,15 +121,18 @@ export const GameTable: React.FC<GameTableProps> = ({
     setSoundEnabled(next);
   };
 
-  // Arrange opponents clockwise starting after southIndex
+  // Arrange opponents clockwise starting after southIndex (or all players if spectator)
   const opponents = useMemo(() => {
+    if (isWaitingSpectator) {
+      return state.players.map((player, index) => ({ player, index }));
+    }
     const list: Array<{ player: Player; index: number }> = [];
     for (let offset = 1; offset < state.players.length; offset++) {
       const idx = (southIndex + offset) % state.players.length;
       list.push({ player: state.players[idx], index: idx });
     }
     return list;
-  }, [southIndex, state.players]);
+  }, [isWaitingSpectator, southIndex, state.players]);
 
   const topDiscard = state.discardPile[state.discardPile.length - 1];
   const latestLog = state.logs[state.logs.length - 1];
@@ -214,6 +235,18 @@ export const GameTable: React.FC<GameTableProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5">
+          {roomCode &&
+            state.players.length + (state.waitingPlayers?.length ?? 0) < 6 && (
+              <button
+                type="button"
+                onClick={() => setShowInvite(true)}
+                className="flex items-center gap-1 px-2 py-1.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/35 text-sky-200 text-xs font-bold active:scale-95 transition"
+                title="Запросити друга"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Друг</span>
+              </button>
+            )}
           {isSandbox && (
             <button
               type="button"
@@ -432,9 +465,30 @@ export const GameTable: React.FC<GameTableProps> = ({
         </div>
       </div>
 
-      {/* Bottom Area: Action Controls + South Player Hand */}
-      <div className="px-2 sm:px-4 pt-1 pb-2 bg-gradient-to-t from-black/55 via-black/30 to-transparent shrink-0">
-        {/* Turn status & Action Buttons */}
+      {/* Bottom Area: Spectator Lock OR Action Controls + South Player Hand */}
+      {isWaitingSpectator ? (
+        <div className="px-3 pb-4 pt-2 shrink-0">
+          <div className="max-w-sm mx-auto rounded-2xl bg-black/55 backdrop-blur-md border border-amber-400/35 p-4 text-center shadow-2xl space-y-2">
+            <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-amber-400/15 border border-amber-400/30 text-amber-300 mx-auto">
+              <Lock className="w-5 h-5" />
+            </div>
+            <div className="text-sm font-extrabold text-white">
+              Ви спостерігаєте за раундом {state.round}
+            </div>
+            <p className="text-xs text-emerald-200/80">
+              Стіл зараз заблокований до кінця раунду — ви автоматично ввійдете в гру з наступної роздачі.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="px-2 sm:px-4 pt-1 pb-2 bg-gradient-to-t from-black/55 via-black/30 to-transparent shrink-0">
+          {state.waitingPlayers && state.waitingPlayers.length > 0 && (
+            <div className="text-center text-[10px] text-sky-200/90 mb-1">
+              ⏳ З наступного раунду приєднаються:{' '}
+              {state.waitingPlayers.map((w) => w.name).join(', ')}
+            </div>
+          )}
+          {/* Turn status & Action Buttons */}
         <div className="max-w-lg mx-auto flex items-center justify-between gap-2 mb-2 px-1">
           <div className="flex items-center gap-2 min-w-0">
             <span
@@ -522,6 +576,7 @@ export const GameTable: React.FC<GameTableProps> = ({
           </div>
         </div>
       </div>
+      )}
 
       {/* Jack Suit Picker */}
       {state.phase === 'choosing_suit' && isMyTurn && (
@@ -578,6 +633,67 @@ export const GameTable: React.FC<GameTableProps> = ({
 
       {/* Rules Modal */}
       {showRules && <RulesModal onClose={() => setShowRules(false)} />}
+
+      {/* Invite Friend In-Game Modal */}
+      {showInvite && roomCode && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="w-full max-w-xs rounded-3xl bg-[#0e2f1d] border border-sky-400/40 p-5 shadow-2xl text-center space-y-4 relative"
+          >
+            <button
+              type="button"
+              onClick={() => setShowInvite(false)}
+              className="absolute top-3.5 right-3.5 p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <div>
+              <div className="text-xs uppercase tracking-wider text-sky-300/90">
+                Запросити в гру
+              </div>
+              <div className="text-3xl font-black tracking-widest text-amber-300 mt-1">
+                {roomCode}
+              </div>
+              <p className="text-[11px] text-emerald-200/80 mt-1">
+                Друг зможе дивитися поточний раунд і автоматично почне грати з наступного!
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => shareRoomInTelegram(roomCode)}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-bold text-xs shadow active:scale-95 transition"
+              >
+                <Send className="w-3.5 h-3.5" />
+                У Telegram
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const url = getRoomInviteUrl(roomCode);
+                  const ok = await copyTextToClipboard(url);
+                  if (ok) {
+                    setInviteCopied(true);
+                    setTimeout(() => setInviteCopied(false), 2000);
+                  } else {
+                    window.prompt('Скопіюйте посилання:', url);
+                  }
+                }}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold text-xs active:scale-95 transition"
+              >
+                {inviteCopied ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5" />
+                )}
+                {inviteCopied ? 'Скопійовано' : 'Лінк'}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {/* Round Over / Match Over Modal */}
       {(state.phase === 'round_over' || state.phase === 'match_over') && (

@@ -198,11 +198,6 @@ wss.on('connection', (ws) => {
           return;
         }
 
-        if (room.gameState) {
-          send(ws, { type: 'ERROR', message: 'Гра в цій кімнаті вже почалась.' });
-          return;
-        }
-
         if (room.players.length >= 6) {
           send(ws, { type: 'ERROR', message: 'Кімната вже заповнена (максимум 6 гравців).' });
           return;
@@ -218,6 +213,27 @@ wss.on('connection', (ws) => {
         room.players.push(player);
         room.sockets.set(msg.playerId, ws);
         socketToPlayer.set(ws, { code, playerId: msg.playerId });
+
+        if (room.gameState) {
+          const waiting = room.gameState.waitingPlayers ?? [];
+          room.gameState = {
+            ...room.gameState,
+            waitingPlayers: [...waiting, { id: player.id, name: player.name }],
+            logs: [
+              ...room.gameState.logs,
+              {
+                id: `${Date.now()}_join`,
+                text: `${player.name} приєднався до столу (зіграє з наступного раунду).`,
+                type: 'info' as const,
+                timestamp: Date.now(),
+              },
+            ].slice(-20),
+          };
+          broadcastRoom(room);
+          broadcastGameState(room);
+          return;
+        }
+
         broadcastRoom(room);
         break;
       }

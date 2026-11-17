@@ -298,4 +298,17 @@ describe('gameEngine', () => {
     const suitAction = chooseBotAction(suitState);
     expect(suitAction).toEqual({ type: 'CHOOSE_SUIT', playerId: 'bot_1', suit: 'diamonds' });
   });
+
+  it('promotes waitingPlayers into active players on START_NEXT_ROUND', () => {
+    const state = makeTestState({
+      phase: 'round_over',
+      roundWinnerId: 'p1',
+      waitingPlayers: [{ id: 'p4', name: 'Оля' }],
+    });
+    const nextRound = applyAction(state, { type: 'START_NEXT_ROUND', playerId: 'p1' });
+    expect(nextRound.players).toHaveLength(4);
+    expect(nextRound.players[3].id).toBe('p4');
+    expect(nextRound.players[3].hand.length).toBeGreaterThanOrEqual(5);
+    expect(nextRound.waitingPlayers).toEqual([]);
+  });
 });

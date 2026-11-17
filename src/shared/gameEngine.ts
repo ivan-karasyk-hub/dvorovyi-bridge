@@ -652,14 +652,36 @@ export function applyAction(
 ): GameState {
   if (action.type === 'START_NEXT_ROUND') {
     if (state.phase !== 'round_over') return state;
-    const winnerIdx = state.players.findIndex((p) => p.id === state.roundWinnerId);
-    const nextDealer = winnerIdx >= 0 ? winnerIdx : (state.dealerIndex + 1) % state.players.length;
-    return dealRound(state, nextDealer, rng);
+    const joinedPlayers: Player[] = (state.waitingPlayers ?? []).map((wp) => ({
+      id: wp.id,
+      name: wp.name,
+      hand: [],
+      score: 0,
+      connected: true,
+      isBot: wp.isBot,
+    }));
+    const allPlayers = [...state.players, ...joinedPlayers];
+    const winnerIdx = allPlayers.findIndex((p) => p.id === state.roundWinnerId);
+    const nextDealer = winnerIdx >= 0 ? winnerIdx : (state.dealerIndex + 1) % allPlayers.length;
+    return dealRound(
+      {
+        ...state,
+        players: allPlayers,
+        waitingPlayers: [],
+      },
+      nextDealer,
+      rng,
+    );
   }
 
   if (action.type === 'REMATCH') {
     if (state.phase !== 'match_over') return state;
-    return createMatch(state.players, rng);
+    const joinedPlayers = (state.waitingPlayers ?? []).map((wp) => ({
+      id: wp.id,
+      name: wp.name,
+      isBot: wp.isBot,
+    }));
+    return createMatch([...state.players, ...joinedPlayers], rng);
   }
 
   const activePlayer = state.players[state.currentPlayerIndex];
