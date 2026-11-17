@@ -12,7 +12,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ onClose }) => {
         <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
           <div className="flex items-center gap-2">
             <HelpCircle className="w-5 h-5 text-sky-400" />
-            <h3 className="font-bold text-white">Правила: Дворовий Бридж</h3>
+            <h3 className="font-bold text-white">Правила: Карасьовий Брідж</h3>
           </div>
           <button
             type="button"

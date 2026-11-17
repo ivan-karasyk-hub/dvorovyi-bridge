@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Users, Play, Copy, Check, Eye, Plus, LogIn, Wifi, WifiOff, Bot, X, Send } from 'lucide-react';
 import type { RoomInfo } from '../shared/types';
-import { getRoomInviteUrl, shareRoomInTelegram } from '../utils/telegram';
+import { copyTextToClipboard, getRoomInviteUrl, shareRoomInTelegram } from '../utils/telegram';
 
 interface LobbyScreenProps {
   playerName: string;
@@ -43,14 +43,12 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   const handleCopyInvite = async () => {
     if (!room) return;
     const url = getRoomInviteUrl(room.code);
-    try {
-      await navigator.clipboard.writeText(url);
+    const ok = await copyTextToClipboard(url);
+    if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      await navigator.clipboard.writeText(room.code).catch(() => {});
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+    } else {
+      window.prompt('Скопіюйте посилання вручну:', url);
     }
   };
 
@@ -196,7 +194,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               </>
             )}
           </div>
-          <h1 className="text-3xl font-black tracking-tight text-white">Дворовий Бридж</h1>
+          <h1 className="text-3xl font-black tracking-tight text-white">Карасьовий Брідж</h1>
           <p className="text-xs text-emerald-200/75">Гра до 125 очок • 2–6 гравців</p>
         </div>
 

@@ -82,7 +82,7 @@ export function getRoomInviteUrl(roomCode: string): string {
 
 export function shareRoomInTelegram(roomCode: string): void {
   const inviteUrl = getRoomInviteUrl(roomCode);
-  const text = `Залітай у Дворовий Бридж! Код кімнати: ${roomCode}`;
+  const text = `Залітай у Карасьовий Брідж! Код кімнати: ${roomCode}`;
   const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(inviteUrl)}&text=${encodeURIComponent(text)}`;
 
   const tg = window.Telegram?.WebApp;
@@ -90,6 +90,36 @@ export function shareRoomInTelegram(roomCode: string): void {
     tg.openTelegramLink(shareUrl);
   } else {
     window.open(shareUrl, '_blank', 'noopener,noreferrer');
+  }
+}
+
+export async function copyTextToClipboard(text: string): Promise<boolean> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fallback below for iOS WebView / Telegram Mini App
+    }
+  }
+
+  try {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.top = '0';
+    textarea.style.left = '-9999px';
+    textarea.style.fontSize = '16px';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    textarea.setSelectionRange(0, text.length);
+    const ok = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    return ok;
+  } catch {
+    return false;
   }
 }
 
