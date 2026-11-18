@@ -15,8 +15,10 @@ import type {
   HoldemAction,
   HoldemState,
   InGameRoomInvite,
+  PublicRoomSummary,
   RoomInfo,
   ServerMessage,
+  SlotSpinOutcome,
   WalletSummary,
 } from './shared/types';
 import {
@@ -29,6 +31,7 @@ import { LobbyScreen } from './components/LobbyScreen';
 import { GameTable } from './components/GameTable';
 import { DurakTable } from './components/DurakTable';
 import { HoldemTable } from './components/HoldemTable';
+import { SlotModal } from './components/SlotModal';
 
 function getWsUrl(): string {
   const custom = import.meta.env.VITE_WS_URL as string | undefined;
@@ -62,6 +65,9 @@ export const App: React.FC = () => {
   const [adminWallets, setAdminWallets] = useState<WalletSummary[]>([]);
   const [friends, setFriends] = useState<FriendEntry[]>([]);
   const [incomingRequests, setIncomingRequests] = useState<FriendRequestEntry[]>([]);
+  const [publicRooms, setPublicRooms] = useState<PublicRoomSummary[]>([]);
+  const [showSlot, setShowSlot] = useState(false);
+  const [slotResult, setSlotResult] = useState<SlotSpinOutcome | null>(null);
   const [roomInvite, setRoomInvite] = useState<InGameRoomInvite | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -125,6 +131,10 @@ export const App: React.FC = () => {
           if (msg.type === 'ROOM_STATE') {
             setRoom(msg.room);
             setError(null);
+          } else if (msg.type === 'PUBLIC_ROOMS') {
+            setPublicRooms(msg.rooms);
+          } else if (msg.type === 'SLOT_RESULT') {
+            setSlotResult(msg.result);
           } else if (msg.type === 'GAME_STATE') {
             setOnlineState(msg.state);
           } else if (msg.type === 'DURAK_STATE') {
@@ -170,7 +180,7 @@ export const App: React.FC = () => {
     };
   }, [avatarUrl, initialRoomCode, playerId]);
 
-  const handleCreateRoom = () => {
+  const handleCreateRoom = (isPublic = true, password?: string) => {
     setError(null);
     sendWs({
       type: 'CREATE_ROOM',
@@ -179,13 +189,15 @@ export const App: React.FC = () => {
       avatarUrl,
       gameType: selectedGameType,
       durakMode: selectedDurakMode,
+      isPublic,
+      password,
     });
   };
 
-  const handleJoinRoom = (code: string) => {
+  const handleJoinRoom = (code: string, password?: string) => {
     setError(null);
     setRoomInvite(null);
-    sendWs({ type: 'JOIN_ROOM', code, playerName, playerId, avatarUrl });
+    sendWs({ type: 'JOIN_ROOM', code, playerName, playerId, avatarUrl, password });
   };
 
   const handleSetRoomGame = (gameType: GameType, durakMode: DurakMode) => {
@@ -389,6 +401,7 @@ export const App: React.FC = () => {
         adminWallets={adminWallets}
         friends={friends}
         incomingRequests={incomingRequests}
+        publicRooms={publicRooms}
         selectedGameType={selectedGameType}
         selectedDurakMode={selectedDurakMode}
         onSelectGameType={setSelectedGameType}
@@ -427,6 +440,7 @@ export const App: React.FC = () => {
             code,
           })
         }
+        onOpenSlot={() => setShowSlot(true)}
         onCreateRoom={handleCreateRoom}
         onJoinRoom={handleJoinRoom}
         onAddBot={handleAddBot}
@@ -436,6 +450,19 @@ export const App: React.FC = () => {
         onStartSandbox={handleStartSandbox}
         currentPlayerId={playerId}
       />
+      {showSlot && (
+        <SlotModal
+          chips={wallet?.chips ?? 1000}
+          lastResult={slotResult}
+          onSpin={(bet) =>
+            sendWs({ type: 'SPIN_SLOT', playerId, playerName, bet })
+          }
+          onBuyBonus={(bet) =>
+            sendWs({ type: 'BUY_SLOT_BONUS', playerId, playerName, bet })
+          }
+          onClose={() => setShowSlot(false)}
+        />
+      )}
     </>
   );
 };

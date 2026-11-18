@@ -10,6 +10,7 @@ interface PlayingCardProps {
   selectionOrder?: number;
   playable?: boolean;
   isDrawnHighlight?: boolean;
+  showBridgePoints?: boolean;
   size?: 'xs' | 'sm' | 'md' | 'lg';
   onClick?: () => void;
   className?: string;
@@ -39,6 +40,7 @@ export const PlayingCard: React.FC<PlayingCardProps> = ({
   selectionOrder,
   playable = false,
   isDrawnHighlight = false,
+  showBridgePoints = false,
   size = 'md',
   onClick,
   className = '',
@@ -97,7 +99,7 @@ export const PlayingCard: React.FC<PlayingCardProps> = ({
 
       {/* Center emblem */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        {isKingOfSpades ? (
+        {isKingOfSpades && showBridgePoints ? (
           <div className="flex flex-col items-center">
             <SuitIcon suit="spades" className="text-2xl sm:text-3xl drop-shadow-sm" />
             <span className="text-[9px] font-extrabold tracking-tighter text-amber-600 bg-amber-100 px-1 rounded">

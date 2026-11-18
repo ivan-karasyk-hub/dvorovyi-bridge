@@ -348,6 +348,7 @@ export const GameTable: React.FC<GameTableProps> = ({
                     key={card.id}
                     card={showOpen ? card : undefined}
                     faceDown={!showOpen}
+                    showBridgePoints
                     size="xs"
                   />
                 ))}
@@ -455,7 +456,7 @@ export const GameTable: React.FC<GameTableProps> = ({
             <div className="relative">
               <AnimatePresence mode="popLayout">
                 {topDiscard && (
-                  <PlayingCard key={topDiscard.id} card={topDiscard} size="lg" />
+                  <PlayingCard key={topDiscard.id} card={topDiscard} showBridgePoints size="lg" />
                 )}
               </AnimatePresence>
 
@@ -584,6 +585,7 @@ export const GameTable: React.FC<GameTableProps> = ({
                   key={card.id}
                   card={card}
                   size="md"
+                  showBridgePoints
                   selected={isSelected}
                   selectionOrder={selectedIds.length > 1 && isSelected ? selIdx + 1 : undefined}
                   playable={canPlaySingle}
@@ -686,7 +688,7 @@ export const GameTable: React.FC<GameTableProps> = ({
                 className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-bold text-xs shadow active:scale-95 transition"
               >
                 <Send className="w-3.5 h-3.5" />
-                У Telegram
+                TG
               </button>
               <button
                 type="button"

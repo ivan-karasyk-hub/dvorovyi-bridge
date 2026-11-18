@@ -217,6 +217,31 @@ export type DurakAction =
   | { type: 'TAKE_CARDS'; playerId: string }
   | { type: 'NEW_DURAK_GAME'; playerId: string };
 
+export interface PublicRoomSummary {
+  code: string;
+  gameType: GameType;
+  durakMode: DurakMode;
+  hostName: string;
+  playerCount: number;
+  maxPlayers: number;
+  hasPassword: boolean;
+  started: boolean;
+}
+
+export type SlotSymbol = '🍒' | '🍋' | '🍇' | '🔔' | '💎' | '7️⃣' | '🃏';
+
+export interface SlotSpinOutcome {
+  grid: SlotSymbol[][]; // 5 columns x 3 rows
+  bet: number;
+  cost: number;
+  win: number;
+  scatterCount: number;
+  freeSpinsAwarded: number;
+  multiplier: number;
+  isBonusPurchase: boolean;
+  winningLines: number[];
+}
+
 /** Multiplayer WebSocket protocol */
 export interface RoomPlayerInfo {
   id: string;
@@ -231,13 +256,25 @@ export interface RoomInfo {
   code: string;
   gameType: GameType;
   durakMode: DurakMode;
+  isPublic: boolean;
+  hasPassword: boolean;
   players: RoomPlayerInfo[];
   started: boolean;
 }
 
 export type ClientMessage =
-  | { type: 'CREATE_ROOM'; playerName: string; playerId: string; avatarUrl?: string; gameType?: GameType; durakMode?: DurakMode }
-  | { type: 'JOIN_ROOM'; code: string; playerName: string; playerId: string; avatarUrl?: string }
+  | {
+      type: 'CREATE_ROOM';
+      playerName: string;
+      playerId: string;
+      avatarUrl?: string;
+      gameType?: GameType;
+      durakMode?: DurakMode;
+      isPublic?: boolean;
+      password?: string;
+    }
+  | { type: 'JOIN_ROOM'; code: string; playerName: string; playerId: string; avatarUrl?: string; password?: string }
+  | { type: 'GET_PUBLIC_ROOMS' }
   | { type: 'SET_ROOM_GAME'; code: string; playerId: string; gameType: GameType; durakMode?: DurakMode }
   | { type: 'ADD_BOT'; code: string; playerId: string }
   | { type: 'REMOVE_BOT'; code: string; playerId: string; botId: string }
@@ -252,16 +289,20 @@ export type ClientMessage =
   | { type: 'SEND_FRIEND_REQUEST'; fromId: string; fromName: string; targetId: string }
   | { type: 'RESPOND_FRIEND_REQUEST'; playerId: string; fromId: string; accept: boolean }
   | { type: 'INVITE_FRIEND_TO_ROOM'; fromId: string; fromName: string; friendId: string; code: string }
+  | { type: 'SPIN_SLOT'; playerId: string; playerName: string; bet: number; isFreeSpin?: boolean }
+  | { type: 'BUY_SLOT_BONUS'; playerId: string; playerName: string; bet: number }
   | { type: 'ADMIN_GET_WALLETS'; adminPlayerId: string }
   | { type: 'ADMIN_ADJUST_CHIPS'; adminPlayerId: string; targetId: string; delta: number }
   | { type: 'LEAVE_ROOM'; code: string; playerId: string };
 
 export type ServerMessage =
   | { type: 'ROOM_STATE'; room: RoomInfo }
+  | { type: 'PUBLIC_ROOMS'; rooms: PublicRoomSummary[] }
   | { type: 'GAME_STATE'; state: GameState }
   | { type: 'DURAK_STATE'; state: DurakState }
   | { type: 'HOLDEM_STATE'; state: HoldemState }
   | { type: 'WALLET_UPDATE'; wallet: WalletSummary }
+  | { type: 'SLOT_RESULT'; result: SlotSpinOutcome }
   | { type: 'LEADERBOARD'; entries: WalletSummary[] }
   | { type: 'FRIENDS_STATE'; friends: FriendEntry[]; incomingRequests: FriendRequestEntry[] }
   | { type: 'ROOM_INVITE'; invite: InGameRoomInvite }

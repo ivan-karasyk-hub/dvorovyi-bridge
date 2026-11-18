@@ -50,6 +50,8 @@ export const HoldemTable: React.FC<HoldemTableProps> = ({
   const [soundOn, setSoundOn] = useState(() => isSoundEnabled());
   const [sandboxRevealAll, setSandboxRevealAll] = useState(true);
   const [raiseAmount, setRaiseAmount] = useState(state.bigBlind * 2);
+  const [showShowdownModal, setShowShowdownModal] = useState(false);
+  const [flyingChips, setFlyingChips] = useState(false);
   const prevStreetRef = useRef(state.street);
 
   const southIndex = useMemo(() => {
@@ -73,8 +75,20 @@ export const HoldemTable: React.FC<HoldemTableProps> = ({
   useEffect(() => {
     if (state.street === 'showdown' && prevStreetRef.current !== 'showdown') {
       playBridgeSound();
-    } else if (state.street !== prevStreetRef.current) {
-      playCardSound();
+      setFlyingChips(true);
+      setShowShowdownModal(false);
+      const timer = window.setTimeout(() => {
+        setFlyingChips(false);
+        setShowShowdownModal(true);
+      }, 1350);
+      prevStreetRef.current = state.street;
+      return () => clearTimeout(timer);
+    } else if (state.street !== 'showdown') {
+      setShowShowdownModal(false);
+      setFlyingChips(false);
+      if (state.street !== prevStreetRef.current) {
+        playCardSound();
+      }
     }
     prevStreetRef.current = state.street;
   }, [state.street]);
@@ -94,9 +108,17 @@ export const HoldemTable: React.FC<HoldemTableProps> = ({
   );
 
   const myBestHand = useMemo(() => {
-    if (southPlayer.hand.length + state.communityCards.length < 5) return null;
+    if (southPlayer.folded || southPlayer.hand.length < 2) return null;
     return evaluateBestHand([...southPlayer.hand, ...state.communityCards]);
-  }, [southPlayer.hand, state.communityCards]);
+  }, [southPlayer.folded, southPlayer.hand, state.communityCards]);
+
+  const highlightedCardIds = useMemo(() => {
+    if (!myBestHand || myBestHand.category < 1) return new Set<string>();
+    return new Set(myBestHand.usedCardIds);
+  }, [myBestHand]);
+
+  const iWonShowdown =
+    state.street === 'showdown' && state.winnerIds.includes(southPlayer.id);
 
   const latestLog = state.logs[state.logs.length - 1];
 
@@ -207,10 +229,29 @@ export const HoldemTable: React.FC<HoldemTableProps> = ({
       </div>
 
       {/* Center: Pot, Community Cards, Log */}
-      <div className="flex-1 flex flex-col items-center justify-center px-3 py-2 gap-3 min-h-0">
-        <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-400/20 border border-amber-400/40 text-amber-200 text-sm font-extrabold">
+      <div className="relative flex-1 flex flex-col items-center justify-center px-3 py-2 gap-3 min-h-0">
+        <div className="relative flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-400/20 border border-amber-400/40 text-amber-200 text-sm font-extrabold">
           <Coins className="w-4 h-4 text-amber-300" />
           Банк: {state.pot}
+
+          {/* Flying chips animation toward winner */}
+          {flyingChips &&
+            [0, 1, 2, 3, 4, 5].map((i) => (
+              <motion.span
+                key={i}
+                initial={{ x: 0, y: 0, opacity: 1, scale: 1 }}
+                animate={{
+                  x: (i - 2.5) * 18,
+                  y: iWonShowdown ? 170 : -150,
+                  opacity: 0,
+                  scale: 0.7,
+                }}
+                transition={{ duration: 1.05, delay: i * 0.08, ease: 'easeInOut' }}
+                className="absolute left-1/2 top-1/2 text-base pointer-events-none"
+              >
+                🪙
+              </motion.span>
+            ))}
         </div>
 
         {/* 5 Community Cards */}
@@ -225,7 +266,15 @@ export const HoldemTable: React.FC<HoldemTableProps> = ({
                 />
               );
             }
-            return <PlayingCard key={card.id} card={asDisplayCard(card)} size="sm" />;
+            const isCombo = highlightedCardIds.has(card.id);
+            return (
+              <PlayingCard
+                key={card.id}
+                card={asDisplayCard(card)}
+                size="sm"
+                playable={isCombo}
+              />
+            );
           })}
         </div>
 
@@ -259,7 +308,12 @@ export const HoldemTable: React.FC<HoldemTableProps> = ({
         {/* Hole Cards */}
         <div className="flex items-center justify-center gap-2">
           {southPlayer.hand.map((c) => (
-            <PlayingCard key={c.id} card={asDisplayCard(c)} size="md" />
+            <PlayingCard
+              key={c.id}
+              card={asDisplayCard(c)}
+              size="md"
+              playable={highlightedCardIds.has(c.id)}
+            />
           ))}
         </div>
 
@@ -336,8 +390,8 @@ export const HoldemTable: React.FC<HoldemTableProps> = ({
         )}
       </div>
 
-      {/* Showdown Modal */}
-      {state.street === 'showdown' && (
+      {/* Showdown Modal (shown after flying chips animation) */}
+      {state.street === 'showdown' && showShowdownModal && (
         <div className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }}

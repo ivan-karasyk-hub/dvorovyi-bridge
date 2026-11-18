@@ -17,12 +17,15 @@ import {
   ShieldAlert,
   UserPlus,
   UserCheck,
+  Lock,
+  Globe,
 } from 'lucide-react';
 import type {
   DurakMode,
   FriendEntry,
   FriendRequestEntry,
   GameType,
+  PublicRoomSummary,
   RoomInfo,
   WalletSummary,
 } from '../shared/types';
@@ -40,6 +43,7 @@ interface LobbyScreenProps {
   adminWallets: WalletSummary[];
   friends: FriendEntry[];
   incomingRequests: FriendRequestEntry[];
+  publicRooms: PublicRoomSummary[];
   selectedGameType: GameType;
   selectedDurakMode: DurakMode;
   onSelectGameType: (gameType: GameType) => void;
@@ -52,8 +56,9 @@ interface LobbyScreenProps {
   onSendFriendRequest: (targetId: string) => void;
   onRespondFriendRequest: (fromId: string, accept: boolean) => void;
   onInviteFriend: (friendId: string, code: string) => void;
-  onCreateRoom: () => void;
-  onJoinRoom: (code: string) => void;
+  onOpenSlot: () => void;
+  onCreateRoom: (isPublic: boolean, password?: string) => void;
+  onJoinRoom: (code: string, password?: string) => void;
   onAddBot: () => void;
   onRemoveBot: (botId: string) => void;
   onStartOnlineGame: () => void;
@@ -74,6 +79,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   adminWallets,
   friends,
   incomingRequests,
+  publicRooms,
   selectedGameType,
   selectedDurakMode,
   onSelectGameType,
@@ -86,6 +92,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   onSendFriendRequest,
   onRespondFriendRequest,
   onInviteFriend,
+  onOpenSlot,
   onCreateRoom,
   onJoinRoom,
   onAddBot,
@@ -96,6 +103,8 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   currentPlayerId,
 }) => {
   const [joinCode, setJoinCode] = useState(initialJoinCode ?? '');
+  const [roomIsPublic, setRoomIsPublic] = useState(true);
+  const [roomPassword, setRoomPassword] = useState('');
   const [sandboxCount, setSandboxCount] = useState<2 | 3 | 4 | 5 | 6>(2);
   const [copied, setCopied] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
@@ -270,11 +279,11 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               <button
                 type="button"
                 onClick={() => shareRoomInTelegram(room.code)}
-                className="flex items-center gap-1 px-2.5 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-xs font-bold text-white active:scale-95 transition shadow"
+                className="flex items-center gap-1 px-2.5 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-xs font-bold text-white whitespace-nowrap active:scale-95 transition shadow"
                 title="Обрати контакт або чат у Telegram"
               >
                 <Send className="w-3.5 h-3.5" />
-                У ТГ
+                TG
               </button>
               <button
                 type="button"
@@ -541,6 +550,15 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             {connected && (
               <button
                 type="button"
+                onClick={onOpenSlot}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-purple-500/30 hover:bg-purple-500/45 border border-purple-400/40 text-[11px] font-bold text-purple-100"
+              >
+                🎰 Слот
+              </button>
+            )}
+            {connected && (
+              <button
+                type="button"
                 onClick={() => setShowFriends(true)}
                 className="relative inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/10 hover:bg-white/20 text-[11px] font-bold text-white"
               >
@@ -670,15 +688,53 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
 
         {/* Friends Multiplayer */}
         <div className="rounded-2xl bg-black/30 backdrop-blur-md border border-emerald-400/25 p-4 space-y-3">
-          <div className="text-sm font-bold text-white flex items-center gap-2">
-            <Users className="w-4 h-4 text-amber-400" />
-            Грати з друзями
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-bold text-white flex items-center gap-2">
+              <Users className="w-4 h-4 text-amber-400" />
+              Кімната для гри
+            </div>
+            <div className="flex gap-1 text-[10px]">
+              <button
+                type="button"
+                onClick={() => {
+                  setRoomIsPublic(true);
+                  setRoomPassword('');
+                }}
+                className={`flex items-center gap-1 px-2 py-1 rounded-lg font-bold ${
+                  roomIsPublic ? 'bg-emerald-400 text-slate-950' : 'bg-white/10 text-white/75'
+                }`}
+              >
+                <Globe className="w-3 h-3" />
+                Відкрита
+              </button>
+              <button
+                type="button"
+                onClick={() => setRoomIsPublic(false)}
+                className={`flex items-center gap-1 px-2 py-1 rounded-lg font-bold ${
+                  !roomIsPublic ? 'bg-amber-400 text-slate-950' : 'bg-white/10 text-white/75'
+                }`}
+              >
+                <Lock className="w-3 h-3" />
+                Пароль
+              </button>
+            </div>
           </div>
+
+          {!roomIsPublic && (
+            <input
+              type="text"
+              value={roomPassword}
+              maxLength={16}
+              onChange={(e) => setRoomPassword(e.target.value)}
+              placeholder="Пароль для входу (необов'язково)..."
+              className="w-full px-3 py-2 rounded-xl bg-white/10 border border-amber-400/30 text-xs text-white placeholder-white/40 focus:outline-none focus:border-amber-400"
+            />
+          )}
 
           <button
             type="button"
             disabled={!connected}
-            onClick={onCreateRoom}
+            onClick={() => onCreateRoom(roomIsPublic, roomPassword.trim() || undefined)}
             className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-950 font-extrabold text-sm shadow-lg active:scale-95 transition"
           >
             <Plus className="w-4 h-4" />
@@ -706,12 +762,69 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
           </div>
         </div>
 
-        {/* Local Sandbox Mode */}
+        {/* Public Open Rooms */}
+        {connected && publicRooms.length > 0 && (
+          <div className="rounded-2xl bg-black/30 backdrop-blur-md border border-white/10 p-4 space-y-2">
+            <div className="text-xs font-bold text-emerald-200 flex items-center gap-1.5">
+              <Globe className="w-3.5 h-3.5 text-emerald-400" />
+              Відкриті кімнати ({publicRooms.length})
+            </div>
+            <div className="space-y-1.5 max-h-40 overflow-y-auto">
+              {publicRooms.map((r) => (
+                <div
+                  key={r.code}
+                  className="flex items-center justify-between px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs"
+                >
+                  <div className="min-w-0">
+                    <div className="font-bold text-white flex items-center gap-1.5">
+                      <span className="text-amber-300">{r.code}</span>
+                      <span>•</span>
+                      <span className="truncate">
+                        {r.gameType === 'durak'
+                          ? 'Дурак'
+                          : r.gameType === 'holdem'
+                            ? 'Холдем'
+                            : 'Брідж'}
+                      </span>
+                      {r.hasPassword && <Lock className="w-3 h-3 text-amber-300" />}
+                    </div>
+                    <div className="text-[10px] text-white/55">
+                      Хост: {r.hostName} • {r.playerCount}/{r.maxPlayers}
+                      {r.started ? ' • триває гра' : ''}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (r.hasPassword) {
+                        const pwd = window.prompt(`Введіть пароль для кімнати ${r.code}:`);
+                        if (pwd !== null) onJoinRoom(r.code, pwd);
+                      } else {
+                        onJoinRoom(r.code);
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-[11px]"
+                  >
+                    Увійти
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Local Training Mode */}
         <div className="rounded-2xl bg-black/25 backdrop-blur-md border border-white/10 p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="text-sm font-bold text-white flex items-center gap-2">
               <Eye className="w-4 h-4 text-sky-400" />
-              Навчання (тест правил)
+              Тренування (
+              {selectedGameType === 'durak'
+                ? 'Дурак'
+                : selectedGameType === 'holdem'
+                  ? 'Холдем'
+                  : 'Брідж'}
+              )
             </div>
             <div className="flex gap-1">
               {([2, 3, 4, 5, 6] as const).map((cnt) => (
@@ -731,14 +844,20 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             </div>
           </div>
           <p className="text-[11px] text-emerald-200/70">
-            Локальний стіл на 2–6 гравців з відкритими картами для навчання та перевірки правил.
+            Локальний стіл на 2–6 гравців з відкритими картами для тренування (Брідж, Дурак, Холдем — залежить від вибору гри зверху).
           </p>
           <button
             type="button"
             onClick={() => onStartSandbox(sandboxCount)}
             className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-white font-semibold text-sm active:scale-95 transition"
           >
-            Запустити Навчання ({sandboxCount} гравці)
+            Тренування:{' '}
+            {selectedGameType === 'durak'
+              ? 'Дурак'
+              : selectedGameType === 'holdem'
+                ? 'Холдем'
+                : 'Брідж'}{' '}
+            ({sandboxCount} гравці)
           </button>
         </div>
       </div>

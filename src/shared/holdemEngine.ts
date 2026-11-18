@@ -76,6 +76,7 @@ export interface HandEval {
   category: number; // 0=HighCard .. 8=StraightFlush, 9=RoyalFlush
   tiebreakers: number[];
   name: string;
+  usedCardIds: string[];
 }
 
 function compareEval(a: HandEval, b: HandEval): number {
@@ -119,15 +120,27 @@ function evalFiveCards(cards: HoldemCard[]): HandEval {
 
   if (isFlush && straightHigh > 0) {
     if (straightHigh === 14) {
-      return { category: 9, tiebreakers: [14], name: 'Роял-флеш' };
+      return {
+        category: 9,
+        tiebreakers: [14],
+        name: 'Роял-флеш',
+        usedCardIds: cards.map((c) => c.id),
+      };
     }
-    return { category: 8, tiebreakers: [straightHigh], name: 'Стріт-флеш' };
+    return {
+      category: 8,
+      tiebreakers: [straightHigh],
+      name: 'Стріт-флеш',
+      usedCardIds: cards.map((c) => c.id),
+    };
   }
   if (groups[0][1] === 4) {
+    const quadVal = groups[0][0];
     return {
       category: 7,
-      tiebreakers: [groups[0][0], groups[1][0]],
+      tiebreakers: [quadVal, groups[1][0]],
       name: 'Каре',
+      usedCardIds: cards.filter((c) => RANK_VALUE[c.rank] === quadVal).map((c) => c.id),
     };
   }
   if (groups[0][1] === 3 && groups[1][1] === 2) {
@@ -135,35 +148,83 @@ function evalFiveCards(cards: HoldemCard[]): HandEval {
       category: 6,
       tiebreakers: [groups[0][0], groups[1][0]],
       name: 'Фул-хаус',
+      usedCardIds: cards.map((c) => c.id),
     };
   }
   if (isFlush) {
-    return { category: 5, tiebreakers: values, name: 'Флеш' };
+    return {
+      category: 5,
+      tiebreakers: values,
+      name: 'Флеш',
+      usedCardIds: cards.map((c) => c.id),
+    };
   }
   if (straightHigh > 0) {
-    return { category: 4, tiebreakers: [straightHigh], name: 'Стріт' };
+    return {
+      category: 4,
+      tiebreakers: [straightHigh],
+      name: 'Стріт',
+      usedCardIds: cards.map((c) => c.id),
+    };
   }
   if (groups[0][1] === 3) {
+    const setVal = groups[0][0];
     const kickers = groups.slice(1).map((g) => g[0]);
-    return { category: 3, tiebreakers: [groups[0][0], ...kickers], name: 'Сет' };
+    return {
+      category: 3,
+      tiebreakers: [setVal, ...kickers],
+      name: 'Сет',
+      usedCardIds: cards.filter((c) => RANK_VALUE[c.rank] === setVal).map((c) => c.id),
+    };
   }
   if (groups[0][1] === 2 && groups[1][1] === 2) {
+    const p1 = groups[0][0];
+    const p2 = groups[1][0];
     return {
       category: 2,
-      tiebreakers: [groups[0][0], groups[1][0], groups[2][0]],
+      tiebreakers: [p1, p2, groups[2][0]],
       name: 'Дві пари',
+      usedCardIds: cards
+        .filter((c) => RANK_VALUE[c.rank] === p1 || RANK_VALUE[c.rank] === p2)
+        .map((c) => c.id),
     };
   }
   if (groups[0][1] === 2) {
+    const pairVal = groups[0][0];
     const kickers = groups.slice(1).map((g) => g[0]);
-    return { category: 1, tiebreakers: [groups[0][0], ...kickers], name: 'Пара' };
+    return {
+      category: 1,
+      tiebreakers: [pairVal, ...kickers],
+      name: 'Пара',
+      usedCardIds: cards.filter((c) => RANK_VALUE[c.rank] === pairVal).map((c) => c.id),
+    };
   }
-  return { category: 0, tiebreakers: values, name: 'Старша карта' };
+  return { category: 0, tiebreakers: values, name: 'Старша карта', usedCardIds: [] };
 }
 
 export function evaluateBestHand(cards: HoldemCard[]): HandEval {
+  if (cards.length < 2) {
+    return { category: 0, tiebreakers: [], name: 'Старша карта', usedCardIds: [] };
+  }
+  // Preflop pocket pair highlight
   if (cards.length < 5) {
-    return { category: 0, tiebreakers: [], name: 'Старша карта' };
+    const counts = new Map<number, HoldemCard[]>();
+    for (const c of cards) {
+      const v = RANK_VALUE[c.rank];
+      const list = counts.get(v) ?? [];
+      list.push(c);
+      counts.set(v, list);
+    }
+    const pairs = Array.from(counts.values()).filter((list) => list.length >= 2);
+    if (pairs.length > 0) {
+      return {
+        category: 1,
+        tiebreakers: [],
+        name: pairs[0].length >= 3 ? 'Сет' : pairs.length >= 2 ? 'Дві пари' : 'Пара',
+        usedCardIds: pairs.flat().map((c) => c.id),
+      };
+    }
+    return { category: 0, tiebreakers: [], name: 'Старша карта', usedCardIds: [] };
   }
   let best: HandEval | null = null;
   const n = cards.length;

@@ -22,6 +22,7 @@ import {
   respondFriendRequest,
   sendFriendRequest,
 } from './friends';
+import { executeSlotSpin } from './slot';
 import {
   addChips,
   claimRescueBonus,
@@ -37,6 +38,7 @@ import type {
   GameState,
   GameType,
   HoldemState,
+  PublicRoomSummary,
   RoomInfo,
   RoomPlayerInfo,
   ServerMessage,
@@ -46,6 +48,8 @@ interface Room {
   code: string;
   gameType: GameType;
   durakMode: DurakMode;
+  isPublic: boolean;
+  password?: string;
   players: RoomPlayerInfo[];
   sockets: Map<string, WebSocket>;
   gameState: GameState | null;
@@ -76,11 +80,41 @@ function send(ws: WebSocket, msg: ServerMessage): void {
   }
 }
 
+function getPublicRoomsList(): PublicRoomSummary[] {
+  const list: PublicRoomSummary[] = [];
+  for (const room of rooms.values()) {
+    if (!room.isPublic) continue;
+    if (room.players.length >= 6) continue;
+    const host = room.players.find((p) => p.isHost) ?? room.players[0];
+    list.push({
+      code: room.code,
+      gameType: room.gameType,
+      durakMode: room.durakMode,
+      hostName: host?.name || 'Хост',
+      playerCount: room.players.length,
+      maxPlayers: 6,
+      hasPassword: Boolean(room.password),
+      started:
+        room.gameState !== null || room.durakState !== null || room.holdemState !== null,
+    });
+  }
+  return list;
+}
+
+function broadcastPublicRooms(): void {
+  const list = getPublicRoomsList();
+  for (const clientWs of wss.clients) {
+    send(clientWs, { type: 'PUBLIC_ROOMS', rooms: list });
+  }
+}
+
 function broadcastRoom(room: Room): void {
   const info: RoomInfo = {
     code: room.code,
     gameType: room.gameType,
     durakMode: room.durakMode,
+    isPublic: room.isPublic,
+    hasPassword: Boolean(room.password),
     players: room.players,
     started:
       room.gameState !== null || room.durakState !== null || room.holdemState !== null,
@@ -88,6 +122,7 @@ function broadcastRoom(room: Room): void {
   for (const [, ws] of room.sockets) {
     send(ws, { type: 'ROOM_STATE', room: info });
   }
+  broadcastPublicRooms();
 }
 
 function getOnlinePlayerIds(): Set<string> {
@@ -351,6 +386,8 @@ wss.on('connection', (ws) => {
           code,
           gameType: msg.gameType ?? 'bridge',
           durakMode: msg.durakMode ?? 'podkidnoy',
+          isPublic: msg.isPublic ?? true,
+          password: msg.password?.trim() || undefined,
           players: [player],
           sockets: new Map([[msg.playerId, ws]]),
           gameState: null,
@@ -428,6 +465,11 @@ wss.on('connection', (ws) => {
 
         if (room.players.length >= 6) {
           send(ws, { type: 'ERROR', message: 'Кімната вже заповнена (максимум 6 гравців).' });
+          return;
+        }
+
+        if (room.password && msg.password?.trim() !== room.password) {
+          send(ws, { type: 'ERROR', message: 'Невірний пароль кімнати!' });
           return;
         }
 
@@ -580,10 +622,35 @@ wss.on('connection', (ws) => {
         socketPlayerIds.set(ws, msg.playerId);
         registerPlayerName(msg.playerId, msg.playerName);
         pushFriendsStateTo(msg.playerId);
+        send(ws, { type: 'PUBLIC_ROOMS', rooms: getPublicRoomsList() });
         void getOrCreateWallet(msg.playerId, msg.playerName).then((wallet) => {
           send(ws, {
             type: 'WALLET_UPDATE',
             wallet: { ...wallet, isAdmin: isAdminPlayer(msg.playerId) },
+          });
+        });
+        break;
+      }
+
+      case 'GET_PUBLIC_ROOMS': {
+        send(ws, { type: 'PUBLIC_ROOMS', rooms: getPublicRoomsList() });
+        break;
+      }
+
+      case 'SPIN_SLOT':
+      case 'BUY_SLOT_BONUS': {
+        const buyBonus = msg.type === 'BUY_SLOT_BONUS';
+        void executeSlotSpin(msg.playerId, msg.playerName, msg.bet, buyBonus).then((res) => {
+          if (!res.ok) {
+            send(ws, { type: 'ERROR', message: res.error });
+            return;
+          }
+          send(ws, { type: 'SLOT_RESULT', result: res.result });
+          void getOrCreateWallet(msg.playerId, msg.playerName).then((w) => {
+            send(ws, {
+              type: 'WALLET_UPDATE',
+              wallet: { ...w, isAdmin: isAdminPlayer(msg.playerId) },
+            });
           });
         });
         break;
