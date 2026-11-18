@@ -22,6 +22,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import type {
+  AdminOnlinePlayer,
   AdminRoomInfo,
   DurakMode,
   FriendEntry,
@@ -29,6 +30,7 @@ import type {
   GameType,
   PublicRoomSummary,
   RoomInfo,
+  ServerConfig,
   WalletSummary,
 } from '../shared/types';
 import { copyTextToClipboard, getRoomInviteUrl, shareRoomInTelegram } from '../utils/telegram';
@@ -44,6 +46,9 @@ interface LobbyScreenProps {
   leaderboard: WalletSummary[];
   adminWallets: WalletSummary[];
   adminRooms: AdminRoomInfo[];
+  adminOnlinePlayers: AdminOnlinePlayer[];
+  serverConfig: ServerConfig;
+  dailyRewardPopup: number | null;
   friends: FriendEntry[];
   incomingRequests: FriendRequestEntry[];
   publicRooms: PublicRoomSummary[];
@@ -53,9 +58,13 @@ interface LobbyScreenProps {
   onSelectDurakMode: (mode: DurakMode) => void;
   onSetRoomGame: (gameType: GameType, durakMode: DurakMode) => void;
   onClaimBonus: () => void;
+  onClaimDailyBonus: () => void;
   onFetchLeaderboard: () => void;
   onFetchAdminWallets: () => void;
   onAdminAdjustChips: (targetId: string, delta: number) => void;
+  onAdminGiftAll: (amount: number) => void;
+  onAdminSetBan: (targetId: string, banned: boolean) => void;
+  onAdminUpdateConfig: (config: Partial<ServerConfig>) => void;
   onAdminCloseRoom: (code: string) => void;
   onAdminKickPlayer: (code: string, targetId: string) => void;
   onAdminBroadcast: (message: string) => void;
@@ -85,6 +94,9 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   leaderboard,
   adminWallets,
   adminRooms,
+  adminOnlinePlayers,
+  serverConfig,
+  dailyRewardPopup,
   friends,
   incomingRequests,
   publicRooms,
@@ -94,9 +106,13 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   onSelectDurakMode,
   onSetRoomGame,
   onClaimBonus,
+  onClaimDailyBonus,
   onFetchLeaderboard,
   onFetchAdminWallets,
   onAdminAdjustChips,
+  onAdminGiftAll,
+  onAdminSetBan,
+  onAdminUpdateConfig,
   onAdminCloseRoom,
   onAdminKickPlayer,
   onAdminBroadcast,
@@ -590,15 +606,35 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               </button>
             )}
           </div>
-          {wallet && wallet.chips < 100 && (
-            <div>
-              <button
-                type="button"
-                onClick={onClaimBonus}
-                className="text-[11px] font-bold text-emerald-300 underline"
-              >
-                Отримати бонус +200 фішок
-              </button>
+          {connected && wallet && (
+            <div className="flex items-center justify-center gap-3">
+              {(!wallet.nextDailyAt || wallet.nextDailyAt <= Date.now()) ? (
+                <button
+                  type="button"
+                  onClick={onClaimDailyBonus}
+                  className="px-3 py-1 rounded-full bg-emerald-400/20 hover:bg-emerald-400/30 border border-emerald-400/40 text-[11px] font-extrabold text-emerald-200 animate-pulse"
+                >
+                  🎁 Бонус дня
+                </button>
+              ) : (
+                <span className="text-[10px] text-white/45">
+                  🎁 Бонус дня забрано
+                </span>
+              )}
+              {wallet.chips < 100 && (
+                <button
+                  type="button"
+                  onClick={onClaimBonus}
+                  className="text-[11px] font-bold text-amber-300 underline"
+                >
+                  +200 рятівних
+                </button>
+              )}
+            </div>
+          )}
+          {dailyRewardPopup !== null && (
+            <div className="text-xs font-extrabold text-amber-300">
+              🎉 Отримано +{dailyRewardPopup} фішок за Бонус дня!
             </div>
           )}
           <h1 className="text-3xl font-black tracking-tight text-white">Карасьовий Брідж</h1>
@@ -646,10 +682,11 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             {connected && (
               <button
                 type="button"
+                disabled={!serverConfig.slotEnabled}
                 onClick={onOpenSlot}
-                className="px-3 py-1 rounded-full bg-purple-500/35 hover:bg-purple-500/50 border border-purple-400/45 text-purple-100 text-[11px] font-extrabold transition active:scale-95"
+                className="px-3 py-1 rounded-full bg-purple-500/35 hover:bg-purple-500/50 disabled:opacity-40 border border-purple-400/45 text-purple-100 text-[11px] font-extrabold transition active:scale-95"
               >
-                🎰 Слот
+                {serverConfig.slotEnabled ? '🎰 Слот' : '🔒 Слот'}
               </button>
             )}
           </div>
@@ -985,14 +1022,17 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => setAdminTab('notice')}
+                onClick={() => {
+                  onFetchAdminWallets();
+                  setAdminTab('notice');
+                }}
                 className={`flex-1 py-1.5 rounded-xl text-xs font-bold ${
                   adminTab === 'notice'
                     ? 'bg-rose-500 text-white'
                     : 'bg-white/10 text-white/75'
                 }`}
               >
-                📢 Всім
+                ⚙️ Сервер ({adminOnlinePlayers.length})
               </button>
             </div>
 
@@ -1040,6 +1080,13 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                       </button>
                     ))}
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => onAdminGiftAll(500)}
+                    className="w-full py-2 rounded-xl bg-amber-400/20 hover:bg-amber-400/30 border border-amber-400/40 text-amber-200 font-bold text-xs active:scale-95 transition"
+                  >
+                    🎁 Роздати всім онлайн +500 фішок
+                  </button>
                 </div>
 
                 <div className="space-y-1.5 max-h-48 overflow-y-auto pt-1 border-t border-white/10">
@@ -1123,28 +1170,131 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             )}
 
             {adminTab === 'notice' && (
-              <div className="space-y-3">
-                <p className="text-[11px] text-emerald-200/80">
-                  Надіслати спливаюче оголошення всім гравцям, які зараз онлайн:
-                </p>
-                <textarea
-                  rows={3}
-                  value={adminNoticeText}
-                  onChange={(e) => setAdminNoticeText(e.target.value)}
-                  placeholder="Наприклад: Турнір з покеру через 5 хвилин!"
-                  className="w-full px-3 py-2 rounded-xl bg-white/10 border border-white/15 text-xs text-white placeholder-white/40 focus:outline-none focus:border-rose-400"
-                />
-                <button
-                  type="button"
-                  disabled={!adminNoticeText.trim()}
-                  onClick={() => {
-                    onAdminBroadcast(adminNoticeText.trim());
-                    setAdminNoticeText('');
-                  }}
-                  className="w-full py-2.5 rounded-xl bg-rose-500 hover:bg-rose-400 disabled:opacity-40 text-white font-bold text-xs"
-                >
-                  Надіслати всім онлайн
-                </button>
+              <div className="space-y-3 overflow-y-auto max-h-80 pr-0.5">
+                {/* Online players & Ban */}
+                <div className="rounded-xl bg-white/5 border border-white/10 p-2.5 space-y-1.5">
+                  <div className="text-[11px] font-bold text-emerald-200">
+                    Зараз онлайн: {adminOnlinePlayers.length}
+                  </div>
+                  <div className="space-y-1 max-h-28 overflow-y-auto">
+                    {adminOnlinePlayers.map((op) => (
+                      <div
+                        key={op.playerId}
+                        className="flex items-center justify-between px-2 py-1 rounded-lg bg-black/25 text-[11px]"
+                      >
+                        <span className="text-white truncate">{op.name}</span>
+                        {op.playerId !== currentPlayerId && (
+                          <button
+                            type="button"
+                            onClick={() => onAdminSetBan(op.playerId, !op.banned)}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              op.banned
+                                ? 'bg-emerald-500 text-slate-950'
+                                : 'bg-rose-500/70 text-white'
+                            }`}
+                          >
+                            {op.banned ? 'Розбан' : 'Бан'}
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Server Config: Slot & Rewards */}
+                <div className="rounded-xl bg-white/5 border border-white/10 p-2.5 space-y-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-white/90 font-semibold">🎰 Слот-казино:</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onAdminUpdateConfig({ slotEnabled: !serverConfig.slotEnabled })
+                      }
+                      className={`px-3 py-1 rounded-lg text-[11px] font-bold ${
+                        serverConfig.slotEnabled
+                          ? 'bg-emerald-500 text-slate-950'
+                          : 'bg-rose-500 text-white'
+                      }`}
+                    >
+                      {serverConfig.slotEnabled ? 'Увімкнено' : 'Вимкнено'}
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5 text-[10px]">
+                    <div className="bg-black/25 rounded-lg p-1.5 text-center">
+                      <div className="text-white/60">Брідж</div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onAdminUpdateConfig({
+                            bridgeRoundReward:
+                              serverConfig.bridgeRoundReward >= 200
+                                ? 50
+                                : serverConfig.bridgeRoundReward + 50,
+                          })
+                        }
+                        className="font-extrabold text-amber-300 underline mt-0.5"
+                      >
+                        +{serverConfig.bridgeRoundReward}
+                      </button>
+                    </div>
+                    <div className="bg-black/25 rounded-lg p-1.5 text-center">
+                      <div className="text-white/60">Дурак</div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onAdminUpdateConfig({
+                            durakWinReward:
+                              serverConfig.durakWinReward >= 300
+                                ? 50
+                                : serverConfig.durakWinReward + 50,
+                          })
+                        }
+                        className="font-extrabold text-amber-300 underline mt-0.5"
+                      >
+                        +{serverConfig.durakWinReward}
+                      </button>
+                    </div>
+                    <div className="bg-black/25 rounded-lg p-1.5 text-center">
+                      <div className="text-white/60">Покер BB</div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onAdminUpdateConfig({
+                            holdemBigBlind:
+                              serverConfig.holdemBigBlind >= 100
+                                ? 20
+                                : serverConfig.holdemBigBlind + 20,
+                          })
+                        }
+                        className="font-extrabold text-amber-300 underline mt-0.5"
+                      >
+                        {serverConfig.holdemBigBlind}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Broadcast Notice */}
+                <div className="space-y-1.5">
+                  <textarea
+                    rows={2}
+                    value={adminNoticeText}
+                    onChange={(e) => setAdminNoticeText(e.target.value)}
+                    placeholder="Оголошення всім онлайн..."
+                    className="w-full px-3 py-2 rounded-xl bg-white/10 border border-white/15 text-xs text-white placeholder-white/40 focus:outline-none focus:border-rose-400"
+                  />
+                  <button
+                    type="button"
+                    disabled={!adminNoticeText.trim()}
+                    onClick={() => {
+                      onAdminBroadcast(adminNoticeText.trim());
+                      setAdminNoticeText('');
+                    }}
+                    className="w-full py-2 rounded-xl bg-rose-500 hover:bg-rose-400 disabled:opacity-40 text-white font-bold text-xs"
+                  >
+                    📢 Надіслати всім онлайн
+                  </button>
+                </div>
               </div>
             )}
           </div>

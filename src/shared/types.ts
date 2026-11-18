@@ -175,6 +175,20 @@ export interface WalletSummary {
   chips: number;
   wins: number;
   isAdmin?: boolean;
+  nextDailyAt?: number;
+}
+
+export interface ServerConfig {
+  slotEnabled: boolean;
+  bridgeRoundReward: number;
+  durakWinReward: number;
+  holdemBigBlind: number;
+}
+
+export interface AdminOnlinePlayer {
+  playerId: string;
+  name: string;
+  banned: boolean;
 }
 
 export interface DurakTablePair {
@@ -294,6 +308,7 @@ export type ClientMessage =
   | { type: 'HOLDEM_ACTION'; code: string; action: HoldemAction }
   | { type: 'GET_WALLET'; playerId: string; playerName: string }
   | { type: 'CLAIM_BONUS'; playerId: string; playerName: string }
+  | { type: 'CLAIM_DAILY_BONUS'; playerId: string; playerName: string }
   | { type: 'GET_LEADERBOARD' }
   | { type: 'GET_FRIENDS'; playerId: string }
   | { type: 'SEND_FRIEND_REQUEST'; fromId: string; fromName: string; targetId: string }
@@ -307,6 +322,9 @@ export type ClientMessage =
   | { type: 'ADMIN_CLOSE_ROOM'; adminPlayerId: string; code: string }
   | { type: 'ADMIN_KICK_PLAYER'; adminPlayerId: string; code: string; targetId: string }
   | { type: 'ADMIN_BROADCAST'; adminPlayerId: string; message: string }
+  | { type: 'ADMIN_GIFT_ALL'; adminPlayerId: string; amount: number }
+  | { type: 'ADMIN_SET_BAN'; adminPlayerId: string; targetId: string; banned: boolean }
+  | { type: 'ADMIN_UPDATE_CONFIG'; adminPlayerId: string; config: Partial<ServerConfig> }
   | { type: 'LEAVE_ROOM'; code: string; playerId: string };
 
 export type ServerMessage =
@@ -317,11 +335,14 @@ export type ServerMessage =
   | { type: 'DURAK_STATE'; state: DurakState }
   | { type: 'HOLDEM_STATE'; state: HoldemState }
   | { type: 'WALLET_UPDATE'; wallet: WalletSummary }
+  | { type: 'DAILY_BONUS_RESULT'; amount: number; nextDailyAt: number }
+  | { type: 'SERVER_CONFIG'; config: ServerConfig }
   | { type: 'SLOT_RESULT'; result: SlotSpinOutcome }
   | { type: 'LEADERBOARD'; entries: WalletSummary[] }
   | { type: 'FRIENDS_STATE'; friends: FriendEntry[]; incomingRequests: FriendRequestEntry[] }
   | { type: 'ROOM_INVITE'; invite: InGameRoomInvite }
   | { type: 'ADMIN_WALLETS'; entries: WalletSummary[] }
   | { type: 'ADMIN_ROOMS'; rooms: AdminRoomInfo[] }
+  | { type: 'ADMIN_ONLINE'; onlineCount: number; players: AdminOnlinePlayer[]; config: ServerConfig }
   | { type: 'ADMIN_NOTICE'; message: string }
   | { type: 'ERROR'; message: string };

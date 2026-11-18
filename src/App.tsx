@@ -3,6 +3,7 @@ import { applyAction, createMatch } from './shared/gameEngine';
 import { applyDurakAction, createDurakMatch } from './shared/durakEngine';
 import { applyHoldemAction, createHoldemMatch } from './shared/holdemEngine';
 import type {
+  AdminOnlinePlayer,
   AdminRoomInfo,
   ClientMessage,
   DurakAction,
@@ -18,6 +19,7 @@ import type {
   InGameRoomInvite,
   PublicRoomSummary,
   RoomInfo,
+  ServerConfig,
   ServerMessage,
   SlotSpinOutcome,
   WalletSummary,
@@ -65,6 +67,14 @@ export const App: React.FC = () => {
   const [leaderboard, setLeaderboard] = useState<WalletSummary[]>([]);
   const [adminWallets, setAdminWallets] = useState<WalletSummary[]>([]);
   const [adminRooms, setAdminRooms] = useState<AdminRoomInfo[]>([]);
+  const [adminOnlinePlayers, setAdminOnlinePlayers] = useState<AdminOnlinePlayer[]>([]);
+  const [serverConfig, setServerConfig] = useState<ServerConfig>({
+    slotEnabled: true,
+    bridgeRoundReward: 50,
+    durakWinReward: 100,
+    holdemBigBlind: 20,
+  });
+  const [dailyRewardPopup, setDailyRewardPopup] = useState<number | null>(null);
   const [adminNotice, setAdminNotice] = useState<string | null>(null);
   const [friends, setFriends] = useState<FriendEntry[]>([]);
   const [incomingRequests, setIncomingRequests] = useState<FriendRequestEntry[]>([]);
@@ -152,6 +162,15 @@ export const App: React.FC = () => {
             setAdminWallets(msg.entries);
           } else if (msg.type === 'ADMIN_ROOMS') {
             setAdminRooms(msg.rooms);
+          } else if (msg.type === 'ADMIN_ONLINE') {
+            setAdminOnlinePlayers(msg.players);
+            setServerConfig(msg.config);
+          } else if (msg.type === 'SERVER_CONFIG') {
+            setServerConfig(msg.config);
+            if (!msg.config.slotEnabled) setShowSlot(false);
+          } else if (msg.type === 'DAILY_BONUS_RESULT') {
+            setDailyRewardPopup(msg.amount);
+            window.setTimeout(() => setDailyRewardPopup(null), 4000);
           } else if (msg.type === 'ROOM_CLOSED') {
             setRoom(null);
             setOnlineState(null);
@@ -433,6 +452,9 @@ export const App: React.FC = () => {
         leaderboard={leaderboard}
         adminWallets={adminWallets}
         adminRooms={adminRooms}
+        adminOnlinePlayers={adminOnlinePlayers}
+        serverConfig={serverConfig}
+        dailyRewardPopup={dailyRewardPopup}
         friends={friends}
         incomingRequests={incomingRequests}
         publicRooms={publicRooms}
@@ -442,6 +464,7 @@ export const App: React.FC = () => {
         onSelectDurakMode={setSelectedDurakMode}
         onSetRoomGame={handleSetRoomGame}
         onClaimBonus={() => sendWs({ type: 'CLAIM_BONUS', playerId, playerName })}
+        onClaimDailyBonus={() => sendWs({ type: 'CLAIM_DAILY_BONUS', playerId, playerName })}
         onFetchLeaderboard={() => sendWs({ type: 'GET_LEADERBOARD' })}
         onFetchAdminWallets={() => {
           sendWs({ type: 'ADMIN_GET_WALLETS', adminPlayerId: playerId });
@@ -454,6 +477,15 @@ export const App: React.FC = () => {
             targetId,
             delta,
           })
+        }
+        onAdminGiftAll={(amount) =>
+          sendWs({ type: 'ADMIN_GIFT_ALL', adminPlayerId: playerId, amount })
+        }
+        onAdminSetBan={(targetId, banned) =>
+          sendWs({ type: 'ADMIN_SET_BAN', adminPlayerId: playerId, targetId, banned })
+        }
+        onAdminUpdateConfig={(config) =>
+          sendWs({ type: 'ADMIN_UPDATE_CONFIG', adminPlayerId: playerId, config })
         }
         onAdminCloseRoom={(code) =>
           sendWs({ type: 'ADMIN_CLOSE_ROOM', adminPlayerId: playerId, code })

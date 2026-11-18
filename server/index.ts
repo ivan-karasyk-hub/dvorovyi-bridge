@@ -18,6 +18,7 @@ import {
 } from '../src/shared/holdemEngine';
 import {
   getFriendsState,
+  getKnownPlayerName,
   registerPlayerName,
   respondFriendRequest,
   sendFriendRequest,
@@ -25,13 +26,16 @@ import {
 import { executeSlotSpin } from './slot';
 import {
   addChips,
+  claimDailyBonus,
   claimRescueBonus,
   getLeaderboard,
+  getNextDailyAt,
   getOrCreateWallet,
   isAdminPlayer,
   normalizeTargetPlayerId,
 } from './wallet';
 import type {
+  AdminOnlinePlayer,
   AdminRoomInfo,
   ClientMessage,
   DurakMode,
@@ -42,6 +46,7 @@ import type {
   PublicRoomSummary,
   RoomInfo,
   RoomPlayerInfo,
+  ServerConfig,
   ServerMessage,
 } from '../src/shared/types';
 
@@ -58,10 +63,20 @@ interface Room {
   holdemState: HoldemState | null;
   holdemStartingChips: Record<string, number>;
   botTimer: ReturnType<typeof setTimeout> | null;
+  turnTimer: ReturnType<typeof setTimeout> | null;
 }
 
 const BOT_DELAY_MS = 1200;
+const PUBLIC_TURN_TIMEOUT_MS = 60000;
 
+const serverConfig: ServerConfig = {
+  slotEnabled: true,
+  bridgeRoundReward: 50,
+  durakWinReward: 100,
+  holdemBigBlind: 20,
+};
+
+const bannedPlayerIds = new Set<string>();
 const rooms = new Map<string, Room>();
 const socketToPlayer = new Map<WebSocket, { code: string; playerId: string }>();
 const socketPlayerIds = new Map<WebSocket, string>();
@@ -132,22 +147,117 @@ function getOnlinePlayerIds(): Set<string> {
 
 function pushFriendsStateTo(playerId: string): void {
   const online = getOnlinePlayerIds();
-  const fState = getFriendsState(playerId, online);
-  for (const [clientWs, pid] of socketPlayerIds.entries()) {
-    if (pid === playerId) {
-      send(clientWs, {
-        type: 'FRIENDS_STATE',
-        friends: fState.friends,
-        incomingRequests: fState.incomingRequests,
-      });
+  void getFriendsState(playerId, online).then((fState) => {
+    for (const [clientWs, pid] of socketPlayerIds.entries()) {
+      if (pid === playerId) {
+        send(clientWs, {
+          type: 'FRIENDS_STATE',
+          friends: fState.friends,
+          incomingRequests: fState.incomingRequests,
+        });
+      }
     }
-  }
+  });
 }
 
 function clearBotTimer(room: Room): void {
   if (room.botTimer) {
     clearTimeout(room.botTimer);
     room.botTimer = null;
+  }
+  if (room.turnTimer) {
+    clearTimeout(room.turnTimer);
+    room.turnTimer = null;
+  }
+}
+
+function schedulePublicTurnTimeout(room: Room): void {
+  if (room.turnTimer) {
+    clearTimeout(room.turnTimer);
+    room.turnTimer = null;
+  }
+  if (!room.isPublic || room.sockets.size === 0) return;
+
+  if (room.gameState) {
+    const st = room.gameState;
+    if (
+      st.phase !== 'playing' &&
+      st.phase !== 'must_cover_six' &&
+      st.phase !== 'choosing_suit' &&
+      st.phase !== 'bridge_choice'
+    ) {
+      return;
+    }
+    const active = st.players[st.currentPlayerIndex];
+    if (!active || active.isBot) return;
+
+    room.turnTimer = setTimeout(() => {
+      room.turnTimer = null;
+      if (!room.gameState) return;
+      const cur = room.gameState;
+      const curP = cur.players[cur.currentPlayerIndex];
+      if (!curP || curP.isBot) return;
+      const prev = cur;
+      if (cur.phase === 'bridge_choice') {
+        room.gameState = applyAction(cur, { type: 'DECLINE_BRIDGE', playerId: curP.id });
+      } else if (cur.phase === 'choosing_suit') {
+        room.gameState = applyAction(cur, { type: 'CHOOSE_SUIT', playerId: curP.id, suit: 'spades' });
+      } else if (cur.phase === 'playing' && cur.hasDrawnThisTurn) {
+        room.gameState = applyAction(cur, { type: 'PASS_TURN', playerId: curP.id });
+      } else {
+        room.gameState = applyAction(cur, { type: 'DRAW_CARD', playerId: curP.id });
+      }
+      broadcastGameState(room);
+      void rewardBridgeTransition(room, prev, room.gameState);
+      scheduleBotTurnIfNeeded(room);
+      schedulePublicTurnTimeout(room);
+    }, PUBLIC_TURN_TIMEOUT_MS);
+    return;
+  }
+
+  if (room.holdemState && room.holdemState.street !== 'showdown') {
+    const st = room.holdemState;
+    const active = st.players[st.currentPlayerIndex];
+    if (!active || active.isBot) return;
+
+    room.turnTimer = setTimeout(() => {
+      room.turnTimer = null;
+      if (!room.holdemState || room.holdemState.street === 'showdown') return;
+      const prev = room.holdemState;
+      const curP = prev.players[prev.currentPlayerIndex];
+      if (!curP || curP.isBot) return;
+      const toCall = Math.max(0, prev.currentMaxBet - curP.currentBet);
+      room.holdemState = applyHoldemAction(
+        prev,
+        toCall === 0
+          ? { type: 'HOLDEM_CHECK_CALL', playerId: curP.id }
+          : { type: 'HOLDEM_FOLD', playerId: curP.id },
+      );
+      broadcastHoldemState(room);
+      void syncHoldemShowdownChips(room, prev, room.holdemState);
+      scheduleHoldemBotTurnIfNeeded(room);
+      schedulePublicTurnTimeout(room);
+    }, PUBLIC_TURN_TIMEOUT_MS);
+    return;
+  }
+
+  if (room.durakState && room.durakState.phase === 'playing') {
+    const st = room.durakState;
+    const def = st.players[st.defenderIndex];
+    if (def && !def.isBot && !st.defenderTaking && st.table.some((p) => p.defense === null)) {
+      room.turnTimer = setTimeout(() => {
+        room.turnTimer = null;
+        if (!room.durakState || room.durakState.phase !== 'playing') return;
+        const prev = room.durakState;
+        const curDef = prev.players[prev.defenderIndex];
+        if (!curDef || curDef.isBot) return;
+        room.durakState = applyDurakAction(prev, { type: 'TAKE_CARDS', playerId: curDef.id });
+        broadcastDurakState(room);
+        void rewardDurakTransition(room, prev, room.durakState);
+        scheduleDurakBotTurnIfNeeded(room);
+        schedulePublicTurnTimeout(room);
+      }, PUBLIC_TURN_TIMEOUT_MS);
+    }
   }
 }
 
@@ -193,18 +303,19 @@ async function rewardBridgeTransition(
 
   const winner = nextState.players.find((p) => p.id === nextState.roundWinnerId);
   if (winner) {
-    const bonus = nextState.roundWinReason === 'bridge' ? 100 : 50;
+    const base = serverConfig.bridgeRoundReward;
+    const bonus = nextState.roundWinReason === 'bridge' ? base * 2 : base;
     const w = await addChips(winner.id, winner.name, bonus, false);
     const ws = room.sockets.get(winner.id);
-    if (ws) send(ws, { type: 'WALLET_UPDATE', wallet: w });
+    if (ws) send(ws, { type: 'WALLET_UPDATE', wallet: { ...w, isAdmin: isAdminPlayer(winner.id) } });
   }
 
   if (nextState.phase === 'match_over') {
     const champion = nextState.players.find((p) => !p.eliminated);
     if (champion) {
-      const w = await addChips(champion.id, champion.name, 200, true);
+      const w = await addChips(champion.id, champion.name, serverConfig.bridgeRoundReward * 4, true);
       const ws = room.sockets.get(champion.id);
-      if (ws) send(ws, { type: 'WALLET_UPDATE', wallet: w });
+      if (ws) send(ws, { type: 'WALLET_UPDATE', wallet: { ...w, isAdmin: isAdminPlayer(champion.id) } });
     }
   }
 }
@@ -218,9 +329,9 @@ async function rewardDurakTransition(
   if (prevState.phase !== 'round_over' && nextState.phase === 'round_over') {
     for (const p of nextState.players) {
       if (p.id !== nextState.loserId) {
-        const w = await addChips(p.id, p.name, 100, true);
+        const w = await addChips(p.id, p.name, serverConfig.durakWinReward, true);
         const ws = room.sockets.get(p.id);
-        if (ws) send(ws, { type: 'WALLET_UPDATE', wallet: w });
+        if (ws) send(ws, { type: 'WALLET_UPDATE', wallet: { ...w, isAdmin: isAdminPlayer(p.id) } });
       }
     }
   }
@@ -403,6 +514,31 @@ const httpServer = createServer((req, res) => {
   res.end(JSON.stringify({ ok: true, service: 'dvorovyi-bridge-ws', rooms: rooms.size }));
 });
 
+function getAdminRoomsList(): AdminRoomInfo[] {
+  const list: AdminRoomInfo[] = [];
+  for (const room of rooms.values()) {
+    list.push({
+      code: room.code,
+      gameType: room.gameType,
+      isPublic: room.isPublic,
+      hasPassword: Boolean(room.password),
+      started:
+        room.gameState !== null || room.durakState !== null || room.holdemState !== null,
+      players: room.players,
+    });
+  }
+  return list;
+}
+
+function getAdminOnlinePlayers(): AdminOnlinePlayer[] {
+  const uniqueIds = Array.from(getOnlinePlayerIds());
+  return uniqueIds.map((pid) => ({
+    playerId: pid,
+    name: getKnownPlayerName(pid),
+    banned: bannedPlayerIds.has(pid),
+  }));
+}
+
 const wss = new WebSocketServer({ server: httpServer });
 
 wss.on('connection', (ws) => {
@@ -417,6 +553,10 @@ wss.on('connection', (ws) => {
 
     switch (msg.type) {
       case 'CREATE_ROOM': {
+        if (bannedPlayerIds.has(msg.playerId)) {
+          send(ws, { type: 'ERROR', message: 'Ваш акаунт заблоковано адміністратором.' });
+          return;
+        }
         const code = generateRoomCode();
         const player: RoomPlayerInfo = {
           id: msg.playerId,
@@ -438,6 +578,7 @@ wss.on('connection', (ws) => {
           holdemState: null,
           holdemStartingChips: {},
           botTimer: null,
+          turnTimer: null,
         };
         rooms.set(code, room);
         socketToPlayer.set(ws, { code, playerId: msg.playerId });
@@ -457,6 +598,10 @@ wss.on('connection', (ws) => {
       }
 
       case 'JOIN_ROOM': {
+        if (bannedPlayerIds.has(msg.playerId)) {
+          send(ws, { type: 'ERROR', message: 'Ваш акаунт заблоковано адміністратором.' });
+          return;
+        }
         const code = msg.code.trim().toUpperCase();
         const room = rooms.get(code);
         if (!room) {
@@ -612,15 +757,19 @@ wss.on('connection', (ws) => {
               if (!p.isBot) room.holdemStartingChips[p.id] = p.chips;
             }
             room.holdemState = createHoldemMatch(playersWithChips);
+            room.holdemState.bigBlind = serverConfig.holdemBigBlind;
+            room.holdemState.smallBlind = Math.max(5, Math.floor(serverConfig.holdemBigBlind / 2));
             broadcastRoom(room);
             broadcastHoldemState(room);
             scheduleHoldemBotTurnIfNeeded(room);
+            schedulePublicTurnTimeout(room);
           });
         } else {
           room.gameState = createMatch(room.players);
           broadcastRoom(room);
           broadcastGameState(room);
           scheduleBotTurnIfNeeded(room);
+          schedulePublicTurnTimeout(room);
         }
         break;
       }
@@ -634,6 +783,7 @@ wss.on('connection', (ws) => {
         broadcastGameState(room);
         void rewardBridgeTransition(room, prev, nextState);
         scheduleBotTurnIfNeeded(room);
+        schedulePublicTurnTimeout(room);
         break;
       }
 
@@ -646,6 +796,7 @@ wss.on('connection', (ws) => {
         broadcastDurakState(room);
         void rewardDurakTransition(room, prev, nextState);
         scheduleDurakBotTurnIfNeeded(room);
+        schedulePublicTurnTimeout(room);
         break;
       }
 
@@ -658,6 +809,7 @@ wss.on('connection', (ws) => {
         broadcastHoldemState(room);
         void syncHoldemShowdownChips(room, prev, nextState);
         scheduleHoldemBotTurnIfNeeded(room);
+        schedulePublicTurnTimeout(room);
         break;
       }
 
@@ -666,10 +818,15 @@ wss.on('connection', (ws) => {
         registerPlayerName(msg.playerId, msg.playerName);
         pushFriendsStateTo(msg.playerId);
         send(ws, { type: 'PUBLIC_ROOMS', rooms: getPublicRoomsList() });
+        send(ws, { type: 'SERVER_CONFIG', config: serverConfig });
         void getOrCreateWallet(msg.playerId, msg.playerName).then((wallet) => {
           send(ws, {
             type: 'WALLET_UPDATE',
-            wallet: { ...wallet, isAdmin: isAdminPlayer(msg.playerId) },
+            wallet: {
+              ...wallet,
+              isAdmin: isAdminPlayer(msg.playerId),
+              nextDailyAt: getNextDailyAt(msg.playerId),
+            },
           });
         });
         break;
@@ -682,6 +839,14 @@ wss.on('connection', (ws) => {
 
       case 'SPIN_SLOT':
       case 'BUY_SLOT_BONUS': {
+        if (bannedPlayerIds.has(msg.playerId)) {
+          send(ws, { type: 'ERROR', message: 'Ваш акаунт заблоковано адміністратором.' });
+          return;
+        }
+        if (!serverConfig.slotEnabled) {
+          send(ws, { type: 'ERROR', message: 'Слот тимчасово вимкнено адміністратором.' });
+          return;
+        }
         const buyBonus = msg.type === 'BUY_SLOT_BONUS';
         void executeSlotSpin(msg.playerId, msg.playerName, msg.bet, buyBonus).then((res) => {
           if (!res.ok) {
@@ -705,20 +870,23 @@ wss.on('connection', (ws) => {
       }
 
       case 'SEND_FRIEND_REQUEST': {
-        const res = sendFriendRequest(msg.fromId, msg.fromName, msg.targetId);
-        if (!res.ok) {
-          send(ws, { type: 'ERROR', message: res.error || 'Не вдалося надіслати запит.' });
-        } else {
-          pushFriendsStateTo(res.targetId);
-          pushFriendsStateTo(msg.fromId);
-        }
+        void sendFriendRequest(msg.fromId, msg.fromName, msg.targetId).then((res) => {
+          if (!res.ok) {
+            send(ws, { type: 'ERROR', message: res.error || 'Не вдалося надіслати запит.' });
+          } else {
+            pushFriendsStateTo(res.targetId);
+            pushFriendsStateTo(msg.fromId);
+          }
+        });
         break;
       }
 
       case 'RESPOND_FRIEND_REQUEST': {
-        respondFriendRequest(msg.playerId, msg.fromId, msg.accept);
-        pushFriendsStateTo(msg.playerId);
-        pushFriendsStateTo(msg.fromId);
+        const myName = getKnownPlayerName(msg.playerId);
+        void respondFriendRequest(msg.playerId, myName, msg.fromId, msg.accept).then(() => {
+          pushFriendsStateTo(msg.playerId);
+          pushFriendsStateTo(msg.fromId);
+        });
         break;
       }
 
@@ -744,7 +912,34 @@ wss.on('connection', (ws) => {
         void claimRescueBonus(msg.playerId, msg.playerName).then(({ profile }) => {
           send(ws, {
             type: 'WALLET_UPDATE',
-            wallet: { ...profile, isAdmin: isAdminPlayer(msg.playerId) },
+            wallet: {
+              ...profile,
+              isAdmin: isAdminPlayer(msg.playerId),
+              nextDailyAt: getNextDailyAt(msg.playerId),
+            },
+          });
+        });
+        break;
+      }
+
+      case 'CLAIM_DAILY_BONUS': {
+        void claimDailyBonus(msg.playerId, msg.playerName).then((res) => {
+          if (!res.ok) {
+            send(ws, { type: 'ERROR', message: res.error });
+            return;
+          }
+          send(ws, {
+            type: 'DAILY_BONUS_RESULT',
+            amount: res.amount,
+            nextDailyAt: res.nextDailyAt,
+          });
+          send(ws, {
+            type: 'WALLET_UPDATE',
+            wallet: {
+              ...res.profile,
+              isAdmin: isAdminPlayer(msg.playerId),
+              nextDailyAt: res.nextDailyAt,
+            },
           });
         });
         break;
@@ -759,27 +954,112 @@ wss.on('connection', (ws) => {
 
       case 'ADMIN_GET_WALLETS': {
         if (!isAdminPlayer(msg.adminPlayerId)) return;
+        const onlinePlayers = getAdminOnlinePlayers();
+        send(ws, {
+          type: 'ADMIN_ONLINE',
+          onlineCount: onlinePlayers.length,
+          players: onlinePlayers,
+          config: serverConfig,
+        });
         void getLeaderboard(50).then((entries) => {
           send(ws, { type: 'ADMIN_WALLETS', entries });
         });
         break;
       }
 
-function getAdminRoomsList(): AdminRoomInfo[] {
-  const list: AdminRoomInfo[] = [];
-  for (const room of rooms.values()) {
-    list.push({
-      code: room.code,
-      gameType: room.gameType,
-      isPublic: room.isPublic,
-      hasPassword: Boolean(room.password),
-      started:
-        room.gameState !== null || room.durakState !== null || room.holdemState !== null,
-      players: room.players,
-    });
-  }
-  return list;
-}
+      case 'ADMIN_GIFT_ALL': {
+        if (!isAdminPlayer(msg.adminPlayerId) || !Number.isFinite(msg.amount)) return;
+        const amount = Math.trunc(msg.amount);
+        const onlineIds = Array.from(getOnlinePlayerIds());
+        void Promise.all(
+          onlineIds.map(async (pid) => {
+            const updated = await addChips(pid, getKnownPlayerName(pid), amount, false);
+            for (const [clientWs, sPid] of socketPlayerIds.entries()) {
+              if (sPid === pid) {
+                send(clientWs, {
+                  type: 'WALLET_UPDATE',
+                  wallet: {
+                    ...updated,
+                    isAdmin: isAdminPlayer(pid),
+                    nextDailyAt: getNextDailyAt(pid),
+                  },
+                });
+                send(clientWs, {
+                  type: 'ADMIN_NOTICE',
+                  message: `🎁 Адмін роздав усім онлайн ${amount > 0 ? `+${amount}` : amount} фішок!`,
+                });
+              }
+            }
+          }),
+        ).then(() => {
+          void getLeaderboard(50).then((entries) => {
+            send(ws, { type: 'ADMIN_WALLETS', entries });
+          });
+        });
+        break;
+      }
+
+      case 'ADMIN_SET_BAN': {
+        if (!isAdminPlayer(msg.adminPlayerId)) return;
+        const targetId = normalizeTargetPlayerId(msg.targetId);
+        if (msg.banned) {
+          bannedPlayerIds.add(targetId);
+          for (const [clientWs, pid] of socketPlayerIds.entries()) {
+            if (pid === targetId) {
+              send(clientWs, {
+                type: 'ERROR',
+                message: 'Ваш акаунт заблоковано адміністратором.',
+              });
+            }
+          }
+        } else {
+          bannedPlayerIds.delete(targetId);
+        }
+        const onlinePlayers = getAdminOnlinePlayers();
+        send(ws, {
+          type: 'ADMIN_ONLINE',
+          onlineCount: onlinePlayers.length,
+          players: onlinePlayers,
+          config: serverConfig,
+        });
+        break;
+      }
+
+      case 'ADMIN_UPDATE_CONFIG': {
+        if (!isAdminPlayer(msg.adminPlayerId)) return;
+        if (typeof msg.config.slotEnabled === 'boolean') {
+          serverConfig.slotEnabled = msg.config.slotEnabled;
+        }
+        if (
+          typeof msg.config.bridgeRoundReward === 'number' &&
+          Number.isFinite(msg.config.bridgeRoundReward)
+        ) {
+          serverConfig.bridgeRoundReward = Math.max(0, Math.trunc(msg.config.bridgeRoundReward));
+        }
+        if (
+          typeof msg.config.durakWinReward === 'number' &&
+          Number.isFinite(msg.config.durakWinReward)
+        ) {
+          serverConfig.durakWinReward = Math.max(0, Math.trunc(msg.config.durakWinReward));
+        }
+        if (
+          typeof msg.config.holdemBigBlind === 'number' &&
+          Number.isFinite(msg.config.holdemBigBlind)
+        ) {
+          serverConfig.holdemBigBlind = Math.max(10, Math.trunc(msg.config.holdemBigBlind));
+        }
+        for (const clientWs of wss.clients) {
+          send(clientWs, { type: 'SERVER_CONFIG', config: serverConfig });
+        }
+        const onlinePlayers = getAdminOnlinePlayers();
+        send(ws, {
+          type: 'ADMIN_ONLINE',
+          onlineCount: onlinePlayers.length,
+          players: onlinePlayers,
+          config: serverConfig,
+        });
+        break;
+      }
 
       case 'ADMIN_ADJUST_CHIPS': {
         if (!isAdminPlayer(msg.adminPlayerId)) return;

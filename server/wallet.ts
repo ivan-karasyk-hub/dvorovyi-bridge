@@ -29,12 +29,15 @@ export function normalizeTargetPlayerId(rawId: string): string {
 }
 
 const memoryStore = new Map<string, WalletProfile>();
+const dailyClaimedAt = new Map<string, number>();
+const DAILY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const DAILY_REWARDS = [150, 250, 350, 500, 750, 1000];
 
-function hasSupabase(): boolean {
+export function hasSupabase(): boolean {
   return Boolean(SUPABASE_URL && SUPABASE_KEY);
 }
 
-async function supabaseFetch(path: string, init?: RequestInit): Promise<Response> {
+export async function supabaseFetch(path: string, init?: RequestInit): Promise<Response> {
   const isJwt = SUPABASE_KEY!.startsWith('eyJ');
   const authHeaders: Record<string, string> = isJwt
     ? { apikey: SUPABASE_KEY!, Authorization: `Bearer ${SUPABASE_KEY!}` }
@@ -169,6 +172,30 @@ export async function addChips(
   }
 
   return updated;
+}
+
+export function getNextDailyAt(playerId: string): number {
+  const last = dailyClaimedAt.get(playerId) ?? 0;
+  return last > 0 ? last + DAILY_COOLDOWN_MS : 0;
+}
+
+export async function claimDailyBonus(
+  playerId: string,
+  name: string,
+): Promise<{ ok: true; amount: number; profile: WalletProfile; nextDailyAt: number } | { ok: false; error: string; nextDailyAt: number }> {
+  const now = Date.now();
+  const nextAt = getNextDailyAt(playerId);
+  if (nextAt > now) {
+    return {
+      ok: false,
+      error: 'Щоденний бонус вже отримано! Повертайтесь пізніше.',
+      nextDailyAt: nextAt,
+    };
+  }
+  const amount = DAILY_REWARDS[Math.floor(Math.random() * DAILY_REWARDS.length)];
+  dailyClaimedAt.set(playerId, now);
+  const profile = await addChips(playerId, name, amount, false);
+  return { ok: true, amount, profile, nextDailyAt: now + DAILY_COOLDOWN_MS };
 }
 
 export async function claimRescueBonus(
