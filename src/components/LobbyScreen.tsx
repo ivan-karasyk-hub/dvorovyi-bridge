@@ -79,7 +79,7 @@ interface LobbyScreenProps {
   onSendRoomChat: (code: string, text: string) => void;
   onRefreshPublicRooms: () => void;
   onOpenSlot: () => void;
-  onOpenBlackjack: () => void;
+  onPlayBlackjackSolo: () => void;
   onCreateRoom: (isPublic: boolean, password?: string) => void;
   onJoinRoom: (code: string, password?: string) => void;
   onAddBot: () => void;
@@ -131,7 +131,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   onSendRoomChat,
   onRefreshPublicRooms,
   onOpenSlot,
-  onOpenBlackjack,
+  onPlayBlackjackSolo,
   onCreateRoom,
   onJoinRoom,
   onAddBot,
@@ -586,7 +586,9 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                 className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 disabled:opacity-40 disabled:pointer-events-none text-slate-950 font-extrabold text-sm shadow-lg active:scale-95 transition"
               >
                 <Play className="w-4 h-4 fill-current" />
-                Почати гру
+                {room.gameType === 'blackjack' && room.players.length === 1
+                  ? 'Почати гру (Соло)'
+                  : 'Почати гру'}
               </button>
             ) : (
               <div className="flex-1 flex items-center justify-center text-xs text-emerald-200/80 bg-white/5 rounded-xl px-3">
@@ -768,15 +770,6 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                 🃏 Блекджек
               </button>
             )}
-            {connected && serverConfig.blackjackEnabled && (
-              <button
-                type="button"
-                onClick={onOpenBlackjack}
-                className="px-3 py-1 rounded-full bg-emerald-500/30 hover:bg-emerald-500/45 border border-emerald-400/45 text-emerald-100 text-[11px] font-extrabold transition active:scale-95"
-              >
-                🃏 Соло 21
-              </button>
-            )}
             {connected && serverConfig.slotEnabled && (
               <button
                 type="button"
@@ -886,8 +879,21 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-950 font-extrabold text-sm shadow-lg active:scale-95 transition"
           >
             <Plus className="w-4 h-4" />
-            Створити кімнату
+            {selectedGameType === 'blackjack'
+              ? 'Створити кімнату (з друзями / ботами)'
+              : 'Створити кімнату'}
           </button>
+
+          {selectedGameType === 'blackjack' && (
+            <button
+              type="button"
+              disabled={!connected}
+              onClick={onPlayBlackjackSolo}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/45 disabled:opacity-40 text-emerald-100 font-extrabold text-xs active:scale-95 transition"
+            >
+              🃏 Грати в Блекджек соло
+            </button>
+          )}
 
           <div className="flex gap-2">
             <input

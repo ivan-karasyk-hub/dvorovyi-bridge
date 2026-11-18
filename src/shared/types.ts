@@ -355,6 +355,7 @@ export type ClientMessage =
       durakMode?: DurakMode;
       isPublic?: boolean;
       password?: string;
+      autoStart?: boolean;
     }
   | { type: 'JOIN_ROOM'; code: string; playerName: string; playerId: string; avatarUrl?: string; password?: string }
   | { type: 'GET_PUBLIC_ROOMS' }

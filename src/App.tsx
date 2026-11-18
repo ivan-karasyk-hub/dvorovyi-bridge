@@ -5,7 +5,6 @@ import { applyHoldemAction, createHoldemMatch } from './shared/holdemEngine';
 import type {
   AdminOnlinePlayer,
   AdminRoomInfo,
-  BlackjackState,
   ChatMessage,
   ClientMessage,
   DurakAction,
@@ -39,7 +38,6 @@ import { GameTable } from './components/GameTable';
 import { DurakTable } from './components/DurakTable';
 import { HoldemTable } from './components/HoldemTable';
 import { SlotModal } from './components/SlotModal';
-import { BlackjackModal } from './components/BlackjackModal';
 import { MultiBlackjackTable } from './components/MultiBlackjackTable';
 import { ChatDrawer } from './components/ChatDrawer';
 
@@ -94,8 +92,6 @@ export const App: React.FC = () => {
   const [publicRooms, setPublicRooms] = useState<PublicRoomSummary[]>([]);
   const [showSlot, setShowSlot] = useState(false);
   const [slotResult, setSlotResult] = useState<SlotSpinOutcome | null>(null);
-  const [showBlackjack, setShowBlackjack] = useState(false);
-  const [blackjackState, setBlackjackState] = useState<BlackjackState | null>(null);
   const [roomChatMessages, setRoomChatMessages] = useState<ChatMessage[]>([]);
   const [activeFriendChat, setActiveFriendChat] = useState<{ id: string; name: string } | null>(
     null,
@@ -190,7 +186,6 @@ export const App: React.FC = () => {
           } else if (msg.type === 'SERVER_CONFIG') {
             setServerConfig(msg.config);
             if (!msg.config.slotEnabled) setShowSlot(false);
-            if (!msg.config.blackjackEnabled) setShowBlackjack(false);
             setSelectedGameType((cur) => {
               if (cur === 'bridge' && !msg.config.bridgeEnabled) {
                 return msg.config.durakEnabled
@@ -215,8 +210,6 @@ export const App: React.FC = () => {
               }
               return cur;
             });
-          } else if (msg.type === 'BJ_STATE') {
-            setBlackjackState(msg.state);
           } else if (msg.type === 'ROOM_CHAT_MSG') {
             setRoomChatMessages((prev) => [...prev, msg.message].slice(-60));
           } else if (msg.type === 'FRIEND_CHAT_HISTORY') {
@@ -626,7 +619,17 @@ export const App: React.FC = () => {
         }
         onRefreshPublicRooms={() => sendWs({ type: 'GET_PUBLIC_ROOMS' })}
         onOpenSlot={() => setShowSlot(true)}
-        onOpenBlackjack={() => setShowBlackjack(true)}
+        onPlayBlackjackSolo={() =>
+          sendWs({
+            type: 'CREATE_ROOM',
+            playerName: playerName.trim() || 'Гравець 1',
+            playerId,
+            avatarUrl,
+            gameType: 'blackjack',
+            isPublic: false,
+            autoStart: true,
+          })
+        }
         onCreateRoom={handleCreateRoom}
         onJoinRoom={handleJoinRoom}
         onAddBot={handleAddBot}
@@ -647,17 +650,6 @@ export const App: React.FC = () => {
             sendWs({ type: 'BUY_SLOT_BONUS', playerId, playerName, bet })
           }
           onClose={() => setShowSlot(false)}
-        />
-      )}
-      {showBlackjack && (
-        <BlackjackModal
-          chips={wallet?.chips ?? 1000}
-          state={blackjackState}
-          onDeal={(bet) => sendWs({ type: 'BJ_DEAL', playerId, playerName, bet })}
-          onAction={(action) =>
-            sendWs({ type: 'BJ_ACTION', playerId, playerName, action })
-          }
-          onClose={() => setShowBlackjack(false)}
         />
       )}
       {activeFriendChat && (

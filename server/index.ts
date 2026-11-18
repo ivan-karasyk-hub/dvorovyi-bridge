@@ -674,7 +674,16 @@ wss.on('connection', (ws) => {
         };
         rooms.set(code, room);
         socketToPlayer.set(ws, { code, playerId: msg.playerId });
-        broadcastRoom(room);
+        if (msg.autoStart && room.gameType === 'blackjack') {
+          void createMultiBlackjackSession(room.players).then((session) => {
+            room.multiBlackjack = session;
+            broadcastRoom(room);
+            broadcastMultiBlackjackState(room);
+            void syncMultiBlackjackWallets(room);
+          });
+        } else {
+          broadcastRoom(room);
+        }
         break;
       }
 
