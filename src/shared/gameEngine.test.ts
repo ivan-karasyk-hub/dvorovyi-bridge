@@ -6,7 +6,6 @@ import {
   createMatch,
   isCardPlayable,
   sanitizeStateForPlayer,
-  validateSeriesPlay,
 } from './gameEngine';
 import { chooseBotAction } from './botEngine';
 import type { Card, GameState } from './types';
@@ -51,7 +50,7 @@ describe('gameEngine', () => {
       { id: 'p2', name: 'Богдан' },
       { id: 'p3', name: 'Віктор' },
     ]);
-    expect(state.players[0].hand).toHaveLength(4); // dealer
+    expect(state.players[state.dealerIndex].hand).toHaveLength(4); // dealer
     // Note: if opening card was 7/8/Q♠, p2 might have drawn extra cards
     expect(state.discardPile).toHaveLength(1);
     const totalCards =
@@ -99,15 +98,38 @@ describe('gameEngine', () => {
     expect(s2.phase).toBe('round_over');
     expect(s2.roundWinnerId).toBe('p1');
 
-    // Forbidden to play 6 as last card
+    // Allowed to play 6 as last card -> enters must_cover_six!
     const onlySixState = makeTestState({
       players: [
         { id: 'p1', name: 'P1', hand: [c('6', 'spades')], score: 0, connected: true },
         { id: 'p2', name: 'P2', hand: [c('9', 'clubs')], score: 0, connected: true },
       ],
     });
-    const validation = validateSeriesPlay(['6_spades'], onlySixState.players[0].hand, onlySixState);
-    expect(validation.valid).toBe(false);
+    const afterLastSix = applyAction(onlySixState, {
+      type: 'PLAY_CARDS',
+      playerId: 'p1',
+      cardIds: ['6_spades'],
+    });
+    expect(afterLastSix.phase).toBe('must_cover_six');
+    expect(afterLastSix.currentPlayerIndex).toBe(0);
+
+    // Covering 6 with another 6 keeps must_cover_six active
+    const coverSixWithSix = makeTestState({
+      phase: 'must_cover_six',
+      discardPile: [c('6', 'spades')],
+      activeSuit: 'spades',
+      players: [
+        { id: 'p1', name: 'P1', hand: [c('6', 'hearts'), c('10', 'hearts')], score: 0, connected: true },
+        { id: 'p2', name: 'P2', hand: [c('9', 'clubs')], score: 0, connected: true },
+      ],
+    });
+    const stillMustCover = applyAction(coverSixWithSix, {
+      type: 'PLAY_CARDS',
+      playerId: 'p1',
+      cardIds: ['6_hearts'],
+    });
+    expect(stillMustCover.phase).toBe('must_cover_six');
+    expect(stillMustCover.activeSuit).toBe('hearts');
   });
 
   it('applies 2, 7 (single/multi), 8 (single/multi), Q♠, and N Aces correctly', () => {

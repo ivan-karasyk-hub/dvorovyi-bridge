@@ -222,12 +222,7 @@ export function isCardPlayable(card: Card, state: GameState): boolean {
 }
 
 export function canPlayerMakeAnyPlay(player: Player, state: GameState): boolean {
-  return player.hand.some((card) => {
-    if (!isCardPlayable(card, state)) return false;
-    // Cannot play 2 or 6 as the last card in hand (must be covered)
-    if ((card.rank === '6' || card.rank === '2') && player.hand.length === 1) return false;
-    return true;
-  });
+  return player.hand.some((card) => isCardPlayable(card, state));
 }
 
 export function validateSeriesPlay(
@@ -260,11 +255,6 @@ export function validateSeriesPlay(
 
   if (!isCardPlayable(cards[0], state)) {
     return { valid: false, reason: 'Перша карта серії не підходить до карти на столі.' };
-  }
-
-  // Forbidden to play 2 or 6 as last card(s) in hand
-  if ((seriesRank === '6' || seriesRank === '2') && cards.length === hand.length) {
-    return { valid: false, reason: `Заборонено скидати ${seriesRank} останньою картою в руці.` };
   }
 
   return { valid: true, cards };
@@ -542,12 +532,19 @@ function applyOpeningCardEffect(
   }
 
   if (openingCard.rank === 'J') {
+    const dealer = state.players[state.dealerIndex];
     logs.push(
       makeLog(
-        `Стартовий Валет ${formatCard(openingCard)} — активна масть ${SUIT_NAMES_UK[openingCard.suit]}.`,
+        `Стартовий Валет ${formatCard(openingCard)} — ${dealer?.name ?? 'роздаючий'} обирає масть!`,
         'special',
       ),
     );
+    return {
+      ...state,
+      phase: 'choosing_suit',
+      currentPlayerIndex: state.dealerIndex,
+      logs: appendLogs(state.logs, ...logs),
+    };
   }
 
   return {
@@ -579,12 +576,14 @@ export function createMatch(
     avatarUrl: info.avatarUrl,
   }));
 
+  const initialDealer = players.length > 0 ? Math.floor(rng() * players.length) : 0;
+
   return dealRound(
     {
       round: 0,
       bridgeMode,
       players,
-      dealerIndex: 0,
+      dealerIndex: initialDealer,
       currentPlayerIndex: 0,
       deck: [],
       discardPile: [],
@@ -599,7 +598,7 @@ export function createMatch(
       scoreHistory: [],
       logs: [],
     },
-    0,
+    initialDealer,
     rng,
   );
 }
@@ -666,12 +665,7 @@ function resolveSpecialEffects(
   let discardPile = [...updatedState.discardPile];
   let reshuffleCount = updatedState.reshuffleCount ?? 0;
 
-  // Check empty hand win
-  if (players[updatedState.currentPlayerIndex].hand.length === 0) {
-    return finalizeRound(updatedState, activePlayer.id, 'empty_hand', playedCards, logs);
-  }
-
-  // Apply special effect of the last played card
+  // 2 and 6 must ALWAYS be covered in this same turn (even if played as last card or on top of another 2/6)
   if (lastCard.rank === '6' || lastCard.rank === '2') {
     logs.push(
       makeLog(`${activePlayer.name} має покрити ${formatCard(lastCard)}!`, 'special'),
@@ -682,6 +676,11 @@ function resolveSpecialEffects(
       currentPlayerIndex: updatedState.currentPlayerIndex,
       logs: appendLogs(updatedState.logs, ...logs),
     };
+  }
+
+  // Check empty hand win
+  if (players[updatedState.currentPlayerIndex].hand.length === 0) {
+    return finalizeRound(updatedState, activePlayer.id, 'empty_hand', playedCards, logs);
   }
 
   if (lastCard.rank === 'J') {
@@ -841,8 +840,14 @@ export function applyAction(
       isBot: wp.isBot,
     }));
     const allPlayers = [...state.players, ...joinedPlayers];
-    const winnerIdx = allPlayers.findIndex((p) => p.id === state.roundWinnerId);
-    const nextDealer = winnerIdx >= 0 ? winnerIdx : (state.dealerIndex + 1) % allPlayers.length;
+    let nextDealer = (state.dealerIndex + 1) % allPlayers.length;
+    let bestScore = -1;
+    allPlayers.forEach((p, idx) => {
+      if (!p.eliminated && p.score > bestScore) {
+        bestScore = p.score;
+        nextDealer = idx;
+      }
+    });
     return dealRound(
       {
         ...state,
@@ -1059,10 +1064,7 @@ export function applyAction(
         drawnCardId: drawnCard.id,
       };
 
-      const drawnPlayable =
-        isCardPlayable(drawnCard, nextState) &&
-        !((drawnCard.rank === '6' || drawnCard.rank === '2') &&
-          players[state.currentPlayerIndex].hand.length === 1);
+      const drawnPlayable = isCardPlayable(drawnCard, nextState);
 
       if (drawnPlayable) {
         logs.push(makeLog(`${activePlayer.name} взяв карту з колоди.`));
