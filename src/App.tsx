@@ -83,6 +83,8 @@ export const App: React.FC = () => {
     durakEnabled: true,
     holdemEnabled: true,
     blackjackEnabled: true,
+    trainingEnabled: true,
+    karasykBrandingEnabled: true,
     bridgeRoundReward: 50,
     durakWinReward: 100,
     holdemBigBlind: 20,
@@ -658,6 +660,7 @@ export const App: React.FC = () => {
       {showSlot && (
         <SlotModal
           chips={wallet?.chips ?? 1000}
+          karasykBrandingEnabled={serverConfig.karasykBrandingEnabled}
           lastResult={slotResult}
           onSpin={(bet) =>
             sendWs({ type: 'SPIN_SLOT', playerId, playerName, bet })

@@ -437,7 +437,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                         ? 'Покер'
                         : room.gameType === 'blackjack'
                           ? 'Блекджек 21'
-                          : `Карасьовий Брідж (${(room.bridgeMode ?? 'kalynivskyi') === 'classic' ? 'Дефолт' : 'Калинівський'})`}
+                          : `${serverConfig.karasykBrandingEnabled ? 'Карасьовий Брідж' : 'Брідж'} (${(room.bridgeMode ?? 'kalynivskyi') === 'classic' ? 'Дефолт' : 'Калинівський'})`}
                   </span>
                 )}
               </div>
@@ -741,7 +741,9 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               🎉 Отримано +{dailyRewardPopup} фішок за Бонус дня!
             </div>
           )}
-          <h1 className="text-3xl font-black tracking-tight text-white">Карасьовий Брідж</h1>
+          <h1 className="text-3xl font-black tracking-tight text-white">
+            {serverConfig.karasykBrandingEnabled ? 'Карасьовий Брідж' : 'Карткові Ігри'}
+          </h1>
           <p className="text-xs text-emerald-200/75">
             {selectedGameType === 'durak'
               ? `Дурак (${selectedDurakMode === 'perevodnoy' ? 'Перевідний' : 'Підкидний'}) • 2–6 гравців`
@@ -1046,6 +1048,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
         )}
 
         {/* Local Training Mode */}
+        {serverConfig.trainingEnabled && (
         <div className="rounded-2xl bg-black/25 backdrop-blur-md border border-white/10 p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="text-sm font-bold text-white flex items-center gap-2">
@@ -1092,6 +1095,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             ({sandboxCount} гравці)
           </button>
         </div>
+        )}
       </div>
 
       {/* Leaderboard Modal */}
@@ -1426,6 +1430,8 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                         ['holdemEnabled', 'Покер'],
                         ['blackjackEnabled', '21'],
                         ['slotEnabled', 'Слот'],
+                        ['trainingEnabled', 'Тренування'],
+                        ['karasykBrandingEnabled', 'Напис «Карась»'],
                       ] as const
                     ).map(([key, label]) => {
                       const active = serverConfig[key];

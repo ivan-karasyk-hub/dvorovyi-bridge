@@ -7,6 +7,7 @@ import { playBridgeSound, playCardSound, playSpecialSound } from '../utils/sound
 
 interface SlotModalProps {
   chips: number;
+  karasykBrandingEnabled?: boolean;
   lastResult: SlotSpinOutcome | null;
   onSpin: (bet: number) => void;
   onBuyBonus: (bet: number) => void;
@@ -29,6 +30,7 @@ function randomSym(): SlotSymbol {
 
 export const SlotModal: React.FC<SlotModalProps> = ({
   chips,
+  karasykBrandingEnabled = true,
   lastResult,
   onSpin,
   onBuyBonus,
@@ -125,7 +127,9 @@ export const SlotModal: React.FC<SlotModalProps> = ({
           <div className="flex items-center gap-2">
             <span className="text-xl">🎰</span>
             <div>
-              <h3 className="font-black text-white text-base leading-tight">Карась Слот</h3>
+              <h3 className="font-black text-white text-base leading-tight">
+                {karasykBrandingEnabled ? 'Карась Слот' : 'Слот'}
+              </h3>
               <div className="text-[11px] text-amber-300 font-bold flex items-center gap-1">
                 <Coins className="w-3 h-3" /> {chips} фішок
               </div>

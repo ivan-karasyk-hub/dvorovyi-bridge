@@ -86,6 +86,8 @@ const serverConfig: ServerConfig = {
   durakEnabled: true,
   holdemEnabled: true,
   blackjackEnabled: true,
+  trainingEnabled: true,
+  karasykBrandingEnabled: true,
   bridgeRoundReward: 50,
   durakWinReward: 100,
   holdemBigBlind: 20,
@@ -1293,6 +1295,12 @@ wss.on('connection', (ws) => {
         }
         if (typeof msg.config.blackjackEnabled === 'boolean') {
           serverConfig.blackjackEnabled = msg.config.blackjackEnabled;
+        }
+        if (typeof msg.config.trainingEnabled === 'boolean') {
+          serverConfig.trainingEnabled = msg.config.trainingEnabled;
+        }
+        if (typeof msg.config.karasykBrandingEnabled === 'boolean') {
+          serverConfig.karasykBrandingEnabled = msg.config.karasykBrandingEnabled;
         }
         if (
           typeof msg.config.bridgeRoundReward === 'number' &&

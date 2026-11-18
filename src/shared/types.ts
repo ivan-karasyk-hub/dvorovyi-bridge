@@ -202,6 +202,8 @@ export interface ServerConfig {
   durakEnabled: boolean;
   holdemEnabled: boolean;
   blackjackEnabled: boolean;
+  trainingEnabled: boolean;
+  karasykBrandingEnabled: boolean;
   bridgeRoundReward: number;
   durakWinReward: number;
   holdemBigBlind: number;
