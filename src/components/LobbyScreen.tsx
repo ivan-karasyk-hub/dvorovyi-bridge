@@ -20,10 +20,12 @@ import {
   Lock,
   Globe,
   RefreshCw,
+  MessageCircle,
 } from 'lucide-react';
 import type {
   AdminOnlinePlayer,
   AdminRoomInfo,
+  ChatMessage,
   DurakMode,
   FriendEntry,
   FriendRequestEntry,
@@ -34,6 +36,7 @@ import type {
   WalletSummary,
 } from '../shared/types';
 import { copyTextToClipboard, getRoomInviteUrl, shareRoomInTelegram } from '../utils/telegram';
+import { ChatDrawer } from './ChatDrawer';
 
 interface LobbyScreenProps {
   playerName: string;
@@ -71,8 +74,12 @@ interface LobbyScreenProps {
   onSendFriendRequest: (targetId: string) => void;
   onRespondFriendRequest: (fromId: string, accept: boolean) => void;
   onInviteFriend: (friendId: string, code: string) => void;
+  onOpenFriendChat: (friendId: string, friendName: string) => void;
+  roomChatMessages: ChatMessage[];
+  onSendRoomChat: (code: string, text: string) => void;
   onRefreshPublicRooms: () => void;
   onOpenSlot: () => void;
+  onOpenBlackjack: () => void;
   onCreateRoom: (isPublic: boolean, password?: string) => void;
   onJoinRoom: (code: string, password?: string) => void;
   onAddBot: () => void;
@@ -119,8 +126,12 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   onSendFriendRequest,
   onRespondFriendRequest,
   onInviteFriend,
+  onOpenFriendChat,
+  roomChatMessages,
+  onSendRoomChat,
   onRefreshPublicRooms,
   onOpenSlot,
+  onOpenBlackjack,
   onCreateRoom,
   onJoinRoom,
   onAddBot,
@@ -137,6 +148,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   const [copied, setCopied] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [showFriends, setShowFriends] = useState(false);
+  const [showRoomChat, setShowRoomChat] = useState(false);
   const [friendTargetId, setFriendTargetId] = useState('');
   const [invitedFriendIds, setInvitedFriendIds] = useState<string[]>([]);
   const [showAdmin, setShowAdmin] = useState(false);
@@ -250,23 +262,36 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                     />
                     <span className="font-semibold text-white truncate">{f.name}</span>
                   </div>
-                  {room && f.online && !inRoom ? (
+                  <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       type="button"
-                      disabled={invited}
                       onClick={() => {
-                        onInviteFriend(f.playerId, room.code);
-                        setInvitedFriendIds((prev) => [...prev, f.playerId]);
+                        setShowFriends(false);
+                        onOpenFriendChat(f.playerId, f.name);
                       }}
-                      className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-bold text-[11px]"
+                      className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-sky-300"
+                      title="Написати повідомлення"
                     >
-                      {invited ? 'Надіслано ✓' : 'Запросити'}
+                      <MessageCircle className="w-3.5 h-3.5" />
                     </button>
-                  ) : (
-                    <span className="text-[10px] text-white/50">
-                      {inRoom ? 'У кімнаті' : f.online ? 'Онлайн' : 'Офлайн'}
-                    </span>
-                  )}
+                    {room && f.online && !inRoom ? (
+                      <button
+                        type="button"
+                        disabled={invited}
+                        onClick={() => {
+                          onInviteFriend(f.playerId, room.code);
+                          setInvitedFriendIds((prev) => [...prev, f.playerId]);
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-bold text-[11px]"
+                      >
+                        {invited ? 'Надіслано ✓' : 'Запросити'}
+                      </button>
+                    ) : (
+                      <span className="text-[10px] text-white/50">
+                        {inRoom ? 'У кімнаті' : f.online ? 'Онлайн' : 'Офлайн'}
+                      </span>
+                    )}
+                  </div>
                 </div>
               );
             })
@@ -292,6 +317,19 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               </div>
             </div>
             <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setShowRoomChat(true)}
+                className="flex items-center gap-1 px-2.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold text-emerald-200 active:scale-95 transition"
+                title="Чат кімнати"
+              >
+                <MessageCircle className="w-3.5 h-3.5" />
+                {roomChatMessages.length > 0 && (
+                  <span className="text-[10px] font-bold text-amber-300">
+                    {roomChatMessages.length}
+                  </span>
+                )}
+              </button>
               <button
                 type="button"
                 onClick={() => setShowFriends(true)}
@@ -333,39 +371,45 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                 <span>Гра:</span>
                 {isHost ? (
                   <div className="flex gap-1">
-                    <button
-                      type="button"
-                      onClick={() => onSetRoomGame('bridge', room.durakMode)}
-                      className={`px-2.5 py-1 rounded-lg font-bold transition ${
-                        room.gameType === 'bridge'
-                          ? 'bg-amber-400 text-slate-950'
-                          : 'bg-white/10 text-white/75'
-                      }`}
-                    >
-                      Брідж
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onSetRoomGame('durak', room.durakMode)}
-                      className={`px-2.5 py-1 rounded-lg font-bold transition ${
-                        room.gameType === 'durak'
-                          ? 'bg-amber-400 text-slate-950'
-                          : 'bg-white/10 text-white/75'
-                      }`}
-                    >
-                      Дурак
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onSetRoomGame('holdem', room.durakMode)}
-                      className={`px-2.5 py-1 rounded-lg font-bold transition ${
-                        room.gameType === 'holdem'
-                          ? 'bg-amber-400 text-slate-950'
-                          : 'bg-white/10 text-white/75'
-                      }`}
-                    >
-                      Покер
-                    </button>
+                    {serverConfig.bridgeEnabled && (
+                      <button
+                        type="button"
+                        onClick={() => onSetRoomGame('bridge', room.durakMode)}
+                        className={`px-2.5 py-1 rounded-lg font-bold transition ${
+                          room.gameType === 'bridge'
+                            ? 'bg-amber-400 text-slate-950'
+                            : 'bg-white/10 text-white/75'
+                        }`}
+                      >
+                        Брідж
+                      </button>
+                    )}
+                    {serverConfig.durakEnabled && (
+                      <button
+                        type="button"
+                        onClick={() => onSetRoomGame('durak', room.durakMode)}
+                        className={`px-2.5 py-1 rounded-lg font-bold transition ${
+                          room.gameType === 'durak'
+                            ? 'bg-amber-400 text-slate-950'
+                            : 'bg-white/10 text-white/75'
+                        }`}
+                      >
+                        Дурак
+                      </button>
+                    )}
+                    {serverConfig.holdemEnabled && (
+                      <button
+                        type="button"
+                        onClick={() => onSetRoomGame('holdem', room.durakMode)}
+                        className={`px-2.5 py-1 rounded-lg font-bold transition ${
+                          room.gameType === 'holdem'
+                            ? 'bg-amber-400 text-slate-950'
+                            : 'bg-white/10 text-white/75'
+                        }`}
+                      >
+                        Покер
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <span className="font-bold text-amber-300">
@@ -537,6 +581,15 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
           </div>
         </div>
         {friendsModal}
+        {showRoomChat && (
+          <ChatDrawer
+            title={`Чат кімнати ${room.code}`}
+            myPlayerId={currentPlayerId}
+            messages={roomChatMessages}
+            onSend={(text) => onSendRoomChat(room.code, text)}
+            onClose={() => setShowRoomChat(false)}
+          />
+        )}
       </div>
     );
   }
@@ -645,48 +698,62 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                 ? 'Покер на фішки • 2–6 гравців'
                 : 'Гра до 125 очок • 2–6 гравців'}
           </p>
-          <div className="flex items-center justify-center gap-1.5 pt-1">
-            <button
-              type="button"
-              onClick={() => onSelectGameType('bridge')}
-              className={`px-3 py-1 rounded-full text-[11px] font-extrabold transition ${
-                selectedGameType === 'bridge'
-                  ? 'bg-amber-400 text-slate-950'
-                  : 'bg-white/10 text-white/75 hover:bg-white/20'
-              }`}
-            >
-              Брідж
-            </button>
-            <button
-              type="button"
-              onClick={() => onSelectGameType('durak')}
-              className={`px-3 py-1 rounded-full text-[11px] font-extrabold transition ${
-                selectedGameType === 'durak'
-                  ? 'bg-amber-400 text-slate-950'
-                  : 'bg-white/10 text-white/75 hover:bg-white/20'
-              }`}
-            >
-              Дурак
-            </button>
-            <button
-              type="button"
-              onClick={() => onSelectGameType('holdem')}
-              className={`px-3 py-1 rounded-full text-[11px] font-extrabold transition ${
-                selectedGameType === 'holdem'
-                  ? 'bg-amber-400 text-slate-950'
-                  : 'bg-white/10 text-white/75 hover:bg-white/20'
-              }`}
-            >
-              Покер
-            </button>
-            {connected && (
+          <div className="flex items-center justify-center flex-wrap gap-1.5 pt-1">
+            {serverConfig.bridgeEnabled && (
               <button
                 type="button"
-                disabled={!serverConfig.slotEnabled}
-                onClick={onOpenSlot}
-                className="px-3 py-1 rounded-full bg-purple-500/35 hover:bg-purple-500/50 disabled:opacity-40 border border-purple-400/45 text-purple-100 text-[11px] font-extrabold transition active:scale-95"
+                onClick={() => onSelectGameType('bridge')}
+                className={`px-3 py-1 rounded-full text-[11px] font-extrabold transition ${
+                  selectedGameType === 'bridge'
+                    ? 'bg-amber-400 text-slate-950'
+                    : 'bg-white/10 text-white/75 hover:bg-white/20'
+                }`}
               >
-                {serverConfig.slotEnabled ? '🎰 Слот' : '🔒 Слот'}
+                Брідж
+              </button>
+            )}
+            {serverConfig.durakEnabled && (
+              <button
+                type="button"
+                onClick={() => onSelectGameType('durak')}
+                className={`px-3 py-1 rounded-full text-[11px] font-extrabold transition ${
+                  selectedGameType === 'durak'
+                    ? 'bg-amber-400 text-slate-950'
+                    : 'bg-white/10 text-white/75 hover:bg-white/20'
+                }`}
+              >
+                Дурак
+              </button>
+            )}
+            {serverConfig.holdemEnabled && (
+              <button
+                type="button"
+                onClick={() => onSelectGameType('holdem')}
+                className={`px-3 py-1 rounded-full text-[11px] font-extrabold transition ${
+                  selectedGameType === 'holdem'
+                    ? 'bg-amber-400 text-slate-950'
+                    : 'bg-white/10 text-white/75 hover:bg-white/20'
+                }`}
+              >
+                Покер
+              </button>
+            )}
+            {connected && serverConfig.blackjackEnabled && (
+              <button
+                type="button"
+                onClick={onOpenBlackjack}
+                className="px-3 py-1 rounded-full bg-emerald-500/30 hover:bg-emerald-500/45 border border-emerald-400/45 text-emerald-100 text-[11px] font-extrabold transition active:scale-95"
+              >
+                🃏 21
+              </button>
+            )}
+            {connected && serverConfig.slotEnabled && (
+              <button
+                type="button"
+                onClick={onOpenSlot}
+                className="px-3 py-1 rounded-full bg-purple-500/35 hover:bg-purple-500/50 border border-purple-400/45 text-purple-100 text-[11px] font-extrabold transition active:scale-95"
+              >
+                🎰 Слот
               </button>
             )}
           </div>
@@ -1201,23 +1268,37 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                   </div>
                 </div>
 
-                {/* Server Config: Slot & Rewards */}
+                {/* Server Config: Games Visibility & Rewards */}
                 <div className="rounded-xl bg-white/5 border border-white/10 p-2.5 space-y-2 text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="text-white/90 font-semibold">🎰 Слот-казино:</span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onAdminUpdateConfig({ slotEnabled: !serverConfig.slotEnabled })
-                      }
-                      className={`px-3 py-1 rounded-lg text-[11px] font-bold ${
-                        serverConfig.slotEnabled
-                          ? 'bg-emerald-500 text-slate-950'
-                          : 'bg-rose-500 text-white'
-                      }`}
-                    >
-                      {serverConfig.slotEnabled ? 'Увімкнено' : 'Вимкнено'}
-                    </button>
+                  <div className="text-[11px] font-bold text-white/90">
+                    Видимість ігор (прибрати / показати):
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {(
+                      [
+                        ['bridgeEnabled', 'Брідж'],
+                        ['durakEnabled', 'Дурак'],
+                        ['holdemEnabled', 'Покер'],
+                        ['blackjackEnabled', '21'],
+                        ['slotEnabled', 'Слот'],
+                      ] as const
+                    ).map(([key, label]) => {
+                      const active = serverConfig[key];
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => onAdminUpdateConfig({ [key]: !active })}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold ${
+                            active
+                              ? 'bg-emerald-500 text-slate-950'
+                              : 'bg-rose-500/70 text-white line-through'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
                   </div>
                   <div className="grid grid-cols-3 gap-1.5 text-[10px]">
                     <div className="bg-black/25 rounded-lg p-1.5 text-center">

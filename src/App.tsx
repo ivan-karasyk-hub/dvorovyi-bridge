@@ -5,6 +5,8 @@ import { applyHoldemAction, createHoldemMatch } from './shared/holdemEngine';
 import type {
   AdminOnlinePlayer,
   AdminRoomInfo,
+  BlackjackState,
+  ChatMessage,
   ClientMessage,
   DurakAction,
   DurakMode,
@@ -35,6 +37,8 @@ import { GameTable } from './components/GameTable';
 import { DurakTable } from './components/DurakTable';
 import { HoldemTable } from './components/HoldemTable';
 import { SlotModal } from './components/SlotModal';
+import { BlackjackModal } from './components/BlackjackModal';
+import { ChatDrawer } from './components/ChatDrawer';
 
 function getWsUrl(): string {
   const custom = import.meta.env.VITE_WS_URL as string | undefined;
@@ -70,6 +74,10 @@ export const App: React.FC = () => {
   const [adminOnlinePlayers, setAdminOnlinePlayers] = useState<AdminOnlinePlayer[]>([]);
   const [serverConfig, setServerConfig] = useState<ServerConfig>({
     slotEnabled: true,
+    bridgeEnabled: true,
+    durakEnabled: true,
+    holdemEnabled: true,
+    blackjackEnabled: true,
     bridgeRoundReward: 50,
     durakWinReward: 100,
     holdemBigBlind: 20,
@@ -81,6 +89,13 @@ export const App: React.FC = () => {
   const [publicRooms, setPublicRooms] = useState<PublicRoomSummary[]>([]);
   const [showSlot, setShowSlot] = useState(false);
   const [slotResult, setSlotResult] = useState<SlotSpinOutcome | null>(null);
+  const [showBlackjack, setShowBlackjack] = useState(false);
+  const [blackjackState, setBlackjackState] = useState<BlackjackState | null>(null);
+  const [roomChatMessages, setRoomChatMessages] = useState<ChatMessage[]>([]);
+  const [activeFriendChat, setActiveFriendChat] = useState<{ id: string; name: string } | null>(
+    null,
+  );
+  const [friendChats, setFriendChats] = useState<Record<string, ChatMessage[]>>({});
   const [roomInvite, setRoomInvite] = useState<InGameRoomInvite | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -168,6 +183,42 @@ export const App: React.FC = () => {
           } else if (msg.type === 'SERVER_CONFIG') {
             setServerConfig(msg.config);
             if (!msg.config.slotEnabled) setShowSlot(false);
+            if (!msg.config.blackjackEnabled) setShowBlackjack(false);
+            setSelectedGameType((cur) => {
+              if (cur === 'bridge' && !msg.config.bridgeEnabled) {
+                return msg.config.durakEnabled
+                  ? 'durak'
+                  : msg.config.holdemEnabled
+                    ? 'holdem'
+                    : 'bridge';
+              }
+              if (cur === 'durak' && !msg.config.durakEnabled) {
+                return msg.config.bridgeEnabled
+                  ? 'bridge'
+                  : msg.config.holdemEnabled
+                    ? 'holdem'
+                    : 'durak';
+              }
+              if (cur === 'holdem' && !msg.config.holdemEnabled) {
+                return msg.config.bridgeEnabled
+                  ? 'bridge'
+                  : msg.config.durakEnabled
+                    ? 'durak'
+                    : 'holdem';
+              }
+              return cur;
+            });
+          } else if (msg.type === 'BJ_STATE') {
+            setBlackjackState(msg.state);
+          } else if (msg.type === 'ROOM_CHAT_MSG') {
+            setRoomChatMessages((prev) => [...prev, msg.message].slice(-60));
+          } else if (msg.type === 'FRIEND_CHAT_HISTORY') {
+            setFriendChats((prev) => ({ ...prev, [msg.friendId]: msg.messages }));
+          } else if (msg.type === 'FRIEND_CHAT_MSG') {
+            setFriendChats((prev) => ({
+              ...prev,
+              [msg.friendId]: [...(prev[msg.friendId] ?? []), msg.message].slice(-60),
+            }));
           } else if (msg.type === 'DAILY_BONUS_RESULT') {
             setDailyRewardPopup(msg.amount);
             window.setTimeout(() => setDailyRewardPopup(null), 4000);
@@ -258,6 +309,7 @@ export const App: React.FC = () => {
       sendWs({ type: 'LEAVE_ROOM', code: room.code, playerId });
     }
     setRoom(null);
+    setRoomChatMessages([]);
     setOnlineState(null);
     setOnlineDurakState(null);
     setOnlineHoldemState(null);
@@ -399,6 +451,10 @@ export const App: React.FC = () => {
           myPlayerId={playerId}
           isSandbox={false}
           roomCode={room.code}
+          chatMessages={roomChatMessages}
+          onSendChat={(text) =>
+            sendWs({ type: 'SEND_ROOM_CHAT', code: room.code, playerId, playerName, text })
+          }
           onAction={handleOnlineHoldemAction}
           onLeave={handleLeaveRoom}
         />
@@ -415,6 +471,10 @@ export const App: React.FC = () => {
           myPlayerId={playerId}
           isSandbox={false}
           roomCode={room.code}
+          chatMessages={roomChatMessages}
+          onSendChat={(text) =>
+            sendWs({ type: 'SEND_ROOM_CHAT', code: room.code, playerId, playerName, text })
+          }
           onAction={handleOnlineDurakAction}
           onLeave={handleLeaveRoom}
         />
@@ -431,6 +491,10 @@ export const App: React.FC = () => {
           myPlayerId={playerId}
           isSandbox={false}
           roomCode={room.code}
+          chatMessages={roomChatMessages}
+          onSendChat={(text) =>
+            sendWs({ type: 'SEND_ROOM_CHAT', code: room.code, playerId, playerName, text })
+          }
           onAction={handleOnlineAction}
           onLeave={handleLeaveRoom}
         />
@@ -521,8 +585,17 @@ export const App: React.FC = () => {
             code,
           })
         }
+        onOpenFriendChat={(friendId, friendName) => {
+          setActiveFriendChat({ id: friendId, name: friendName });
+          sendWs({ type: 'GET_FRIEND_CHAT', playerId, friendId });
+        }}
+        roomChatMessages={roomChatMessages}
+        onSendRoomChat={(code, text) =>
+          sendWs({ type: 'SEND_ROOM_CHAT', code, playerId, playerName, text })
+        }
         onRefreshPublicRooms={() => sendWs({ type: 'GET_PUBLIC_ROOMS' })}
         onOpenSlot={() => setShowSlot(true)}
+        onOpenBlackjack={() => setShowBlackjack(true)}
         onCreateRoom={handleCreateRoom}
         onJoinRoom={handleJoinRoom}
         onAddBot={handleAddBot}
@@ -543,6 +616,34 @@ export const App: React.FC = () => {
             sendWs({ type: 'BUY_SLOT_BONUS', playerId, playerName, bet })
           }
           onClose={() => setShowSlot(false)}
+        />
+      )}
+      {showBlackjack && (
+        <BlackjackModal
+          chips={wallet?.chips ?? 1000}
+          state={blackjackState}
+          onDeal={(bet) => sendWs({ type: 'BJ_DEAL', playerId, playerName, bet })}
+          onAction={(action) =>
+            sendWs({ type: 'BJ_ACTION', playerId, playerName, action })
+          }
+          onClose={() => setShowBlackjack(false)}
+        />
+      )}
+      {activeFriendChat && (
+        <ChatDrawer
+          title={activeFriendChat.name}
+          myPlayerId={playerId}
+          messages={friendChats[activeFriendChat.id] ?? []}
+          onSend={(text) =>
+            sendWs({
+              type: 'SEND_FRIEND_CHAT',
+              fromId: playerId,
+              fromName: playerName,
+              toId: activeFriendChat.id,
+              text,
+            })
+          }
+          onClose={() => setActiveFriendChat(null)}
         />
       )}
     </>

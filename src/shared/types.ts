@@ -180,9 +180,32 @@ export interface WalletSummary {
 
 export interface ServerConfig {
   slotEnabled: boolean;
+  bridgeEnabled: boolean;
+  durakEnabled: boolean;
+  holdemEnabled: boolean;
+  blackjackEnabled: boolean;
   bridgeRoundReward: number;
   durakWinReward: number;
   holdemBigBlind: number;
+}
+
+export interface ChatMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  text: string;
+  timestamp: number;
+}
+
+export interface BlackjackState {
+  playerHand: HoldemCard[];
+  dealerHand: HoldemCard[];
+  playerScore: number;
+  dealerScore: number;
+  bet: number;
+  phase: 'betting' | 'player_turn' | 'finished';
+  outcome: 'win' | 'blackjack' | 'lose' | 'push' | null;
+  payout: number;
 }
 
 export interface AdminOnlinePlayer {
@@ -316,6 +339,11 @@ export type ClientMessage =
   | { type: 'INVITE_FRIEND_TO_ROOM'; fromId: string; fromName: string; friendId: string; code: string }
   | { type: 'SPIN_SLOT'; playerId: string; playerName: string; bet: number; isFreeSpin?: boolean }
   | { type: 'BUY_SLOT_BONUS'; playerId: string; playerName: string; bet: number }
+  | { type: 'BJ_DEAL'; playerId: string; playerName: string; bet: number }
+  | { type: 'BJ_ACTION'; playerId: string; playerName: string; action: 'hit' | 'stand' | 'double' }
+  | { type: 'SEND_ROOM_CHAT'; code: string; playerId: string; playerName: string; text: string }
+  | { type: 'SEND_FRIEND_CHAT'; fromId: string; fromName: string; toId: string; text: string }
+  | { type: 'GET_FRIEND_CHAT'; playerId: string; friendId: string }
   | { type: 'ADMIN_GET_WALLETS'; adminPlayerId: string }
   | { type: 'ADMIN_ADJUST_CHIPS'; adminPlayerId: string; targetId: string; delta: number }
   | { type: 'ADMIN_GET_ROOMS'; adminPlayerId: string }
@@ -338,6 +366,10 @@ export type ServerMessage =
   | { type: 'DAILY_BONUS_RESULT'; amount: number; nextDailyAt: number }
   | { type: 'SERVER_CONFIG'; config: ServerConfig }
   | { type: 'SLOT_RESULT'; result: SlotSpinOutcome }
+  | { type: 'BJ_STATE'; state: BlackjackState }
+  | { type: 'ROOM_CHAT_MSG'; message: ChatMessage }
+  | { type: 'FRIEND_CHAT_HISTORY'; friendId: string; messages: ChatMessage[] }
+  | { type: 'FRIEND_CHAT_MSG'; friendId: string; message: ChatMessage }
   | { type: 'LEADERBOARD'; entries: WalletSummary[] }
   | { type: 'FRIENDS_STATE'; friends: FriendEntry[]; incomingRequests: FriendRequestEntry[] }
   | { type: 'ROOM_INVITE'; invite: InGameRoomInvite }

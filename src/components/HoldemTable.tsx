@@ -8,9 +8,11 @@ import {
   RotateCcw,
   Volume2,
   VolumeX,
+  MessageCircle,
 } from 'lucide-react';
 import type {
   Card,
+  ChatMessage,
   HoldemAction,
   HoldemCard,
   HoldemPlayer,
@@ -18,6 +20,7 @@ import type {
 } from '../shared/types';
 import { evaluateBestHand } from '../shared/holdemEngine';
 import { PlayingCard } from './PlayingCard';
+import { ChatDrawer } from './ChatDrawer';
 import { triggerHaptic } from '../utils/telegram';
 import {
   isSoundEnabled,
@@ -31,6 +34,8 @@ interface HoldemTableProps {
   myPlayerId: string;
   isSandbox: boolean;
   roomCode?: string;
+  chatMessages?: ChatMessage[];
+  onSendChat?: (text: string) => void;
   onAction: (action: HoldemAction) => void;
   onLeave: () => void;
 }
@@ -44,6 +49,8 @@ export const HoldemTable: React.FC<HoldemTableProps> = ({
   myPlayerId,
   isSandbox,
   roomCode,
+  chatMessages = [],
+  onSendChat,
   onAction,
   onLeave,
 }) => {
@@ -52,6 +59,7 @@ export const HoldemTable: React.FC<HoldemTableProps> = ({
   const [raiseAmount, setRaiseAmount] = useState(state.bigBlind * 2);
   const [showShowdownModal, setShowShowdownModal] = useState(false);
   const [flyingChips, setFlyingChips] = useState(false);
+  const [showChat, setShowChat] = useState(false);
   const prevStreetRef = useRef(state.street);
 
   const southIndex = useMemo(() => {
@@ -155,6 +163,16 @@ export const HoldemTable: React.FC<HoldemTableProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5">
+          {roomCode && onSendChat && (
+            <button
+              type="button"
+              onClick={() => setShowChat(true)}
+              className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-emerald-200"
+              title="Чат кімнати"
+            >
+              <MessageCircle className="w-4 h-4" />
+            </button>
+          )}
           {isSandbox && (
             <button
               type="button"
@@ -433,6 +451,15 @@ export const HoldemTable: React.FC<HoldemTableProps> = ({
             </div>
           </motion.div>
         </div>
+      )}
+      {showChat && roomCode && onSendChat && (
+        <ChatDrawer
+          title={`Чат кімнати ${roomCode}`}
+          myPlayerId={myPlayerId}
+          messages={chatMessages}
+          onSend={onSendChat}
+          onClose={() => setShowChat(false)}
+        />
       )}
     </div>
   );

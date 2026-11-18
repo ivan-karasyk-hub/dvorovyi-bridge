@@ -10,8 +10,9 @@ import {
   Volume2,
   VolumeX,
   ArrowRightLeft,
+  MessageCircle,
 } from 'lucide-react';
-import type { Card, DurakAction, DurakPlayer, DurakState } from '../shared/types';
+import type { Card, ChatMessage, DurakAction, DurakPlayer, DurakState } from '../shared/types';
 import {
   SUIT_NAMES_UK,
   SUIT_SYMBOLS,
@@ -22,6 +23,7 @@ import {
   canTransferCardInDurak,
 } from '../shared/durakEngine';
 import { PlayingCard } from './PlayingCard';
+import { ChatDrawer } from './ChatDrawer';
 import { triggerHaptic } from '../utils/telegram';
 import {
   isSoundEnabled,
@@ -36,6 +38,8 @@ interface DurakTableProps {
   myPlayerId: string;
   isSandbox: boolean;
   roomCode?: string;
+  chatMessages?: ChatMessage[];
+  onSendChat?: (text: string) => void;
   onAction: (action: DurakAction) => void;
   onLeave: () => void;
 }
@@ -45,12 +49,15 @@ export const DurakTable: React.FC<DurakTableProps> = ({
   myPlayerId,
   isSandbox,
   roomCode,
+  chatMessages = [],
+  onSendChat,
   onAction,
   onLeave,
 }) => {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [soundOn, setSoundOn] = useState(() => isSoundEnabled());
   const [sandboxRevealAll, setSandboxRevealAll] = useState(true);
+  const [showChat, setShowChat] = useState(false);
   const prevTableLenRef = useRef(state.table.length);
   const prevPhaseRef = useRef(state.phase);
 
@@ -217,6 +224,16 @@ export const DurakTable: React.FC<DurakTableProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5">
+          {roomCode && onSendChat && (
+            <button
+              type="button"
+              onClick={() => setShowChat(true)}
+              className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-emerald-200"
+              title="Чат кімнати"
+            >
+              <MessageCircle className="w-4 h-4" />
+            </button>
+          )}
           {isSandbox && (
             <button
               type="button"
@@ -498,6 +515,15 @@ export const DurakTable: React.FC<DurakTableProps> = ({
             </div>
           </motion.div>
         </div>
+      )}
+      {showChat && roomCode && onSendChat && (
+        <ChatDrawer
+          title={`Чат кімнати ${roomCode}`}
+          myPlayerId={myPlayerId}
+          messages={chatMessages}
+          onSend={onSendChat}
+          onClose={() => setShowChat(false)}
+        />
       )}
     </div>
   );

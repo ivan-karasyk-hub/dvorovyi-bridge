@@ -24,6 +24,7 @@ import {
   sendFriendRequest,
 } from './friends';
 import { executeSlotSpin } from './slot';
+import { actBlackjack, dealBlackjack } from './blackjack';
 import {
   addChips,
   claimDailyBonus,
@@ -37,6 +38,7 @@ import {
 import type {
   AdminOnlinePlayer,
   AdminRoomInfo,
+  ChatMessage,
   ClientMessage,
   DurakMode,
   DurakState,
@@ -71,12 +73,17 @@ const PUBLIC_TURN_TIMEOUT_MS = 60000;
 
 const serverConfig: ServerConfig = {
   slotEnabled: true,
+  bridgeEnabled: true,
+  durakEnabled: true,
+  holdemEnabled: true,
+  blackjackEnabled: true,
   bridgeRoundReward: 50,
   durakWinReward: 100,
   holdemBigBlind: 20,
 };
 
 const bannedPlayerIds = new Set<string>();
+const friendChats = new Map<string, ChatMessage[]>();
 const rooms = new Map<string, Room>();
 const socketToPlayer = new Map<WebSocket, { code: string; playerId: string }>();
 const socketPlayerIds = new Map<WebSocket, string>();
@@ -864,6 +871,107 @@ wss.on('connection', (ws) => {
         break;
       }
 
+      case 'BJ_DEAL': {
+        if (bannedPlayerIds.has(msg.playerId)) {
+          send(ws, { type: 'ERROR', message: 'Ваш акаунт заблоковано адміністратором.' });
+          return;
+        }
+        if (!serverConfig.blackjackEnabled) {
+          send(ws, { type: 'ERROR', message: 'Блекджек тимчасово вимкнено.' });
+          return;
+        }
+        void dealBlackjack(msg.playerId, msg.playerName, msg.bet).then((res) => {
+          if (!res.ok) {
+            send(ws, { type: 'ERROR', message: res.error });
+            return;
+          }
+          send(ws, { type: 'BJ_STATE', state: res.state });
+          void getOrCreateWallet(msg.playerId, msg.playerName).then((w) => {
+            send(ws, {
+              type: 'WALLET_UPDATE',
+              wallet: {
+                ...w,
+                isAdmin: isAdminPlayer(msg.playerId),
+                nextDailyAt: getNextDailyAt(msg.playerId),
+              },
+            });
+          });
+        });
+        break;
+      }
+
+      case 'BJ_ACTION': {
+        void actBlackjack(msg.playerId, msg.playerName, msg.action).then((res) => {
+          if (!res.ok) {
+            send(ws, { type: 'ERROR', message: res.error });
+            return;
+          }
+          send(ws, { type: 'BJ_STATE', state: res.state });
+          void getOrCreateWallet(msg.playerId, msg.playerName).then((w) => {
+            send(ws, {
+              type: 'WALLET_UPDATE',
+              wallet: {
+                ...w,
+                isAdmin: isAdminPlayer(msg.playerId),
+                nextDailyAt: getNextDailyAt(msg.playerId),
+              },
+            });
+          });
+        });
+        break;
+      }
+
+      case 'SEND_ROOM_CHAT': {
+        const room = rooms.get(msg.code);
+        if (!room) return;
+        const clean = msg.text.trim().slice(0, 250);
+        if (!clean) return;
+        const chatMsg: ChatMessage = {
+          id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          senderId: msg.playerId,
+          senderName: msg.playerName,
+          text: clean,
+          timestamp: Date.now(),
+        };
+        for (const [, clientWs] of room.sockets) {
+          send(clientWs, { type: 'ROOM_CHAT_MSG', message: chatMsg });
+        }
+        break;
+      }
+
+      case 'GET_FRIEND_CHAT': {
+        const key = [msg.playerId, msg.friendId].sort().join('__');
+        send(ws, {
+          type: 'FRIEND_CHAT_HISTORY',
+          friendId: msg.friendId,
+          messages: friendChats.get(key) ?? [],
+        });
+        break;
+      }
+
+      case 'SEND_FRIEND_CHAT': {
+        const clean = msg.text.trim().slice(0, 250);
+        if (!clean) return;
+        const key = [msg.fromId, msg.toId].sort().join('__');
+        const chatMsg: ChatMessage = {
+          id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          senderId: msg.fromId,
+          senderName: msg.fromName,
+          text: clean,
+          timestamp: Date.now(),
+        };
+        const list = [...(friendChats.get(key) ?? []), chatMsg].slice(-50);
+        friendChats.set(key, list);
+        for (const [clientWs, pid] of socketPlayerIds.entries()) {
+          if (pid === msg.fromId) {
+            send(clientWs, { type: 'FRIEND_CHAT_MSG', friendId: msg.toId, message: chatMsg });
+          } else if (pid === msg.toId) {
+            send(clientWs, { type: 'FRIEND_CHAT_MSG', friendId: msg.fromId, message: chatMsg });
+          }
+        }
+        break;
+      }
+
       case 'GET_FRIENDS': {
         pushFriendsStateTo(msg.playerId);
         break;
@@ -1029,6 +1137,18 @@ wss.on('connection', (ws) => {
         if (!isAdminPlayer(msg.adminPlayerId)) return;
         if (typeof msg.config.slotEnabled === 'boolean') {
           serverConfig.slotEnabled = msg.config.slotEnabled;
+        }
+        if (typeof msg.config.bridgeEnabled === 'boolean') {
+          serverConfig.bridgeEnabled = msg.config.bridgeEnabled;
+        }
+        if (typeof msg.config.durakEnabled === 'boolean') {
+          serverConfig.durakEnabled = msg.config.durakEnabled;
+        }
+        if (typeof msg.config.holdemEnabled === 'boolean') {
+          serverConfig.holdemEnabled = msg.config.holdemEnabled;
+        }
+        if (typeof msg.config.blackjackEnabled === 'boolean') {
+          serverConfig.blackjackEnabled = msg.config.blackjackEnabled;
         }
         if (
           typeof msg.config.bridgeRoundReward === 'number' &&

@@ -18,8 +18,9 @@ import {
   Copy,
   Check,
   X,
+  MessageCircle,
 } from 'lucide-react';
-import type { Card, GameAction, GameState, Player, Suit } from '../shared/types';
+import type { Card, ChatMessage, GameAction, GameState, Player, Suit } from '../shared/types';
 import {
   SUIT_NAMES_UK,
   SUIT_SYMBOLS,
@@ -30,6 +31,7 @@ import { PlayingCard } from './PlayingCard';
 import { SuitPickerModal } from './SuitPickerModal';
 import { ScoreboardModal } from './ScoreboardModal';
 import { RulesModal } from './RulesModal';
+import { ChatDrawer } from './ChatDrawer';
 import {
   copyTextToClipboard,
   getRoomInviteUrl,
@@ -50,6 +52,8 @@ interface GameTableProps {
   myPlayerId: string;
   isSandbox: boolean;
   roomCode?: string;
+  chatMessages?: ChatMessage[];
+  onSendChat?: (text: string) => void;
   onAction: (action: GameAction) => void;
   onLeave: () => void;
 }
@@ -59,6 +63,8 @@ export const GameTable: React.FC<GameTableProps> = ({
   myPlayerId,
   isSandbox,
   roomCode,
+  chatMessages = [],
+  onSendChat,
   onAction,
   onLeave,
 }) => {
@@ -66,6 +72,7 @@ export const GameTable: React.FC<GameTableProps> = ({
   const [showScoreboard, setShowScoreboard] = useState(false);
   const [showRules, setShowRules] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
+  const [showChat, setShowChat] = useState(false);
   const [inviteCopied, setInviteCopied] = useState(false);
   const [soundOn, setSoundOn] = useState(() => isSoundEnabled());
   const [sandboxRevealAll, setSandboxRevealAll] = useState(true);
@@ -244,6 +251,16 @@ export const GameTable: React.FC<GameTableProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5">
+          {roomCode && onSendChat && (
+            <button
+              type="button"
+              onClick={() => setShowChat(true)}
+              className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-emerald-200 active:scale-95 transition"
+              title="Чат кімнати"
+            >
+              <MessageCircle className="w-4 h-4" />
+            </button>
+          )}
           {roomCode &&
             state.players.length + (state.waitingPlayers?.length ?? 0) < 6 && (
               <button
@@ -654,6 +671,17 @@ export const GameTable: React.FC<GameTableProps> = ({
 
       {/* Rules Modal */}
       {showRules && <RulesModal onClose={() => setShowRules(false)} />}
+
+      {/* Room Chat Drawer */}
+      {showChat && roomCode && onSendChat && (
+        <ChatDrawer
+          title={`Чат кімнати ${roomCode}`}
+          myPlayerId={myPlayerId}
+          messages={chatMessages}
+          onSend={onSendChat}
+          onClose={() => setShowChat(false)}
+        />
+      )}
 
       {/* Invite Friend In-Game Modal */}
       {showInvite && roomCode && (
