@@ -9,9 +9,13 @@ import type {
   Rank,
   Suit,
 } from './types';
-import { createDeck, formatCard, shuffleDeck, SUIT_NAMES_UK } from './gameEngine';
+import { createDeck, DURAK_RANKS, formatCard, shuffleDeck, SUIT_NAMES_UK } from './gameEngine';
 
 const RANK_POWER: Record<Rank, number> = {
+  '2': 2,
+  '3': 3,
+  '4': 4,
+  '5': 5,
   '6': 6,
   '7': 7,
   '8': 8,
@@ -105,7 +109,7 @@ export function createDurakMatch(
   mode: DurakMode = 'podkidnoy',
   rng: () => number = Math.random,
 ): DurakState {
-  const deck = shuffleDeck(createDeck(), rng);
+  const deck = shuffleDeck(createDeck(DURAK_RANKS), rng);
   const trumpCard = deck[0] ?? null;
   const trumpSuit: Suit = trumpCard ? trumpCard.suit : 'spades';
 

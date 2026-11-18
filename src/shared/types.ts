@@ -1,6 +1,19 @@
 export type Suit = 'spades' | 'hearts' | 'diamonds' | 'clubs';
 
-export type Rank = '6' | '7' | '8' | '9' | '10' | 'J' | 'Q' | 'K' | 'A';
+export type Rank =
+  | '2'
+  | '3'
+  | '4'
+  | '5'
+  | '6'
+  | '7'
+  | '8'
+  | '9'
+  | '10'
+  | 'J'
+  | 'Q'
+  | 'K'
+  | 'A';
 
 export interface Card {
   id: string;
@@ -35,12 +48,13 @@ export interface RoundScoreEntry {
 }
 
 export type TurnPhase =
-  | 'playing'         // Active player can play cards or draw
-  | 'must_cover_six'  // Active player played a 6 and must cover it in this same turn
-  | 'choosing_suit'   // Active player played a Jack and must choose orderedSuit
-  | 'bridge_choice'   // 4 same-rank cards on top; player can declare Bridge or keep playing
-  | 'round_over'      // Round ended, showing round summary before next round
-  | 'match_over';     // Someone reached >= 126 points
+  | 'playing'              // Active player can play cards or draw
+  | 'must_cover_six'       // Active player played a 2 or 6 and must cover it in this same turn
+  | 'choosing_suit'        // Active player played a Jack and must choose orderedSuit
+  | 'queen_spades_choice'  // Next player chooses: take 5 & skip OR take 8 & play
+  | 'bridge_choice'        // 4 same-rank cards on top; player can declare Bridge or keep playing
+  | 'round_over'           // Round ended, showing round summary before next round
+  | 'match_over';          // Someone reached >= 126 points
 
 export interface GameLogEntry {
   id: string;
@@ -57,6 +71,7 @@ export interface WaitingPlayer {
 
 export interface GameState {
   round: number;
+  bridgeMode?: BridgeMode;
   players: Player[];
   waitingPlayers?: WaitingPlayer[];
   dealerIndex: number;
@@ -82,12 +97,14 @@ export type GameAction =
   | { type: 'DRAW_CARD'; playerId: string }
   | { type: 'PASS_TURN'; playerId: string }
   | { type: 'CHOOSE_SUIT'; playerId: string; suit: Suit }
+  | { type: 'CHOOSE_QUEEN_SPADES'; playerId: string; option: 'take5_skip' | 'take8_play' }
   | { type: 'DECLARE_BRIDGE'; playerId: string }
   | { type: 'DECLINE_BRIDGE'; playerId: string }
   | { type: 'START_NEXT_ROUND'; playerId: string }
   | { type: 'REMATCH'; playerId: string };
 
 export type GameType = 'bridge' | 'durak' | 'holdem' | 'blackjack';
+export type BridgeMode = 'kalynivskyi' | 'classic';
 export type DurakMode = 'podkidnoy' | 'perevodnoy';
 
 export type HoldemRank =
@@ -302,6 +319,7 @@ export interface AdminRoomInfo {
 export interface PublicRoomSummary {
   code: string;
   gameType: GameType;
+  bridgeMode?: BridgeMode;
   durakMode: DurakMode;
   hostName: string;
   playerCount: number;
@@ -338,6 +356,7 @@ export interface RoomPlayerInfo {
 export interface RoomInfo {
   code: string;
   gameType: GameType;
+  bridgeMode?: BridgeMode;
   durakMode: DurakMode;
   isPublic: boolean;
   hasPassword: boolean;
@@ -352,6 +371,7 @@ export type ClientMessage =
       playerId: string;
       avatarUrl?: string;
       gameType?: GameType;
+      bridgeMode?: BridgeMode;
       durakMode?: DurakMode;
       isPublic?: boolean;
       password?: string;
@@ -359,7 +379,7 @@ export type ClientMessage =
     }
   | { type: 'JOIN_ROOM'; code: string; playerName: string; playerId: string; avatarUrl?: string; password?: string }
   | { type: 'GET_PUBLIC_ROOMS' }
-  | { type: 'SET_ROOM_GAME'; code: string; playerId: string; gameType: GameType; durakMode?: DurakMode }
+  | { type: 'SET_ROOM_GAME'; code: string; playerId: string; gameType: GameType; bridgeMode?: BridgeMode; durakMode?: DurakMode }
   | { type: 'ADD_BOT'; code: string; playerId: string }
   | { type: 'REMOVE_BOT'; code: string; playerId: string; botId: string }
   | { type: 'START_GAME'; code: string; playerId: string }

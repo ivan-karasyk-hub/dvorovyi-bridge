@@ -44,6 +44,7 @@ import {
 import type {
   AdminOnlinePlayer,
   AdminRoomInfo,
+  BridgeMode,
   ChatMessage,
   ClientMessage,
   DurakMode,
@@ -61,6 +62,7 @@ import type {
 interface Room {
   code: string;
   gameType: GameType;
+  bridgeMode: BridgeMode;
   durakMode: DurakMode;
   isPublic: boolean;
   password?: string;
@@ -124,6 +126,7 @@ function getPublicRoomsList(): PublicRoomSummary[] {
     list.push({
       code: room.code,
       gameType: room.gameType,
+      bridgeMode: room.bridgeMode,
       durakMode: room.durakMode,
       hostName: host?.name || 'Хост',
       playerCount: room.players.length,
@@ -150,6 +153,7 @@ function broadcastRoom(room: Room): void {
   const info: RoomInfo = {
     code: room.code,
     gameType: room.gameType,
+    bridgeMode: room.bridgeMode,
     durakMode: room.durakMode,
     isPublic: room.isPublic,
     hasPassword: Boolean(room.password),
@@ -659,6 +663,7 @@ wss.on('connection', (ws) => {
         const room: Room = {
           code,
           gameType: msg.gameType ?? 'bridge',
+          bridgeMode: msg.bridgeMode ?? 'kalynivskyi',
           durakMode: msg.durakMode ?? 'podkidnoy',
           isPublic: msg.isPublic ?? true,
           password: msg.password?.trim() || undefined,
@@ -697,6 +702,7 @@ wss.on('connection', (ws) => {
           return;
         }
         room.gameType = msg.gameType;
+        if (msg.bridgeMode) room.bridgeMode = msg.bridgeMode;
         if (msg.durakMode) room.durakMode = msg.durakMode;
         broadcastRoom(room);
         break;
@@ -890,7 +896,7 @@ wss.on('connection', (ws) => {
             schedulePublicTurnTimeout(room);
           });
         } else {
-          room.gameState = createMatch(room.players);
+          room.gameState = createMatch(room.players, room.bridgeMode);
           broadcastRoom(room);
           broadcastGameState(room);
           scheduleBotTurnIfNeeded(room);

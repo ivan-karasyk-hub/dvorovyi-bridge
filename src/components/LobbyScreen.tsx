@@ -25,6 +25,7 @@ import {
 import type {
   AdminOnlinePlayer,
   AdminRoomInfo,
+  BridgeMode,
   ChatMessage,
   DurakMode,
   FriendEntry,
@@ -56,10 +57,12 @@ interface LobbyScreenProps {
   incomingRequests: FriendRequestEntry[];
   publicRooms: PublicRoomSummary[];
   selectedGameType: GameType;
+  selectedBridgeMode: BridgeMode;
   selectedDurakMode: DurakMode;
   onSelectGameType: (gameType: GameType) => void;
+  onSelectBridgeMode: (mode: BridgeMode) => void;
   onSelectDurakMode: (mode: DurakMode) => void;
-  onSetRoomGame: (gameType: GameType, durakMode: DurakMode) => void;
+  onSetRoomGame: (gameType: GameType, durakMode: DurakMode, bridgeMode?: BridgeMode) => void;
   onClaimBonus: () => void;
   onClaimDailyBonus: () => void;
   onFetchLeaderboard: () => void;
@@ -108,8 +111,10 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   incomingRequests,
   publicRooms,
   selectedGameType,
+  selectedBridgeMode,
   selectedDurakMode,
   onSelectGameType,
+  onSelectBridgeMode,
   onSelectDurakMode,
   onSetRoomGame,
   onClaimBonus,
@@ -432,10 +437,39 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                         ? 'Покер'
                         : room.gameType === 'blackjack'
                           ? 'Блекджек 21'
-                          : 'Карасьовий Брідж'}
+                          : `Карасьовий Брідж (${(room.bridgeMode ?? 'kalynivskyi') === 'classic' ? 'Дефолт' : 'Калинівський'})`}
                   </span>
                 )}
               </div>
+              {isHost && room.gameType === 'bridge' && (
+                <div className="flex items-center justify-between text-[11px] text-emerald-200/80">
+                  <span>Режим Бріджу:</span>
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      onClick={() => onSetRoomGame('bridge', room.durakMode, 'kalynivskyi')}
+                      className={`px-2 py-0.5 rounded-md font-semibold ${
+                        (room.bridgeMode ?? 'kalynivskyi') === 'kalynivskyi'
+                          ? 'bg-emerald-400 text-slate-950'
+                          : 'bg-white/10 text-white/75'
+                      }`}
+                    >
+                      Калинівський
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onSetRoomGame('bridge', room.durakMode, 'classic')}
+                      className={`px-2 py-0.5 rounded-md font-semibold ${
+                        room.bridgeMode === 'classic'
+                          ? 'bg-emerald-400 text-slate-950'
+                          : 'bg-white/10 text-white/75'
+                      }`}
+                    >
+                      Дефолт
+                    </button>
+                  </div>
+                </div>
+              )}
               {isHost && room.gameType === 'durak' && (
                 <div className="flex items-center justify-between text-[11px] text-emerald-200/80">
                   <span>Режим Дурака:</span>
@@ -715,7 +749,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                 ? 'Покер на фішки • 2–6 гравців'
                 : selectedGameType === 'blackjack'
                   ? 'Блекджек 21 • 1–4 гравці'
-                  : 'Гра до 125 очок • 2–6 гравців'}
+                  : `Брідж (${selectedBridgeMode === 'classic' ? 'Дефолт' : 'Калинівський'}) • 2–6 гравців`}
           </p>
           <div className="flex items-center justify-center flex-wrap gap-1.5 pt-1">
             {serverConfig.bridgeEnabled && (
@@ -780,6 +814,32 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               </button>
             )}
           </div>
+          {selectedGameType === 'bridge' && (
+            <div className="flex items-center justify-center gap-1.5 pt-1">
+              <button
+                type="button"
+                onClick={() => onSelectBridgeMode('kalynivskyi')}
+                className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold ${
+                  selectedBridgeMode === 'kalynivskyi'
+                    ? 'bg-emerald-400 text-slate-950'
+                    : 'bg-white/10 text-white/70'
+                }`}
+              >
+                Калинівський
+              </button>
+              <button
+                type="button"
+                onClick={() => onSelectBridgeMode('classic')}
+                className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold ${
+                  selectedBridgeMode === 'classic'
+                    ? 'bg-emerald-400 text-slate-950'
+                    : 'bg-white/10 text-white/70'
+                }`}
+              >
+                Дефолт
+              </button>
+            </div>
+          )}
           {selectedGameType === 'durak' && (
             <div className="flex items-center justify-center gap-1.5 pt-1">
               <button

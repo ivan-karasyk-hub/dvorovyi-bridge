@@ -491,7 +491,7 @@ export const GameTable: React.FC<GameTableProps> = ({
               {state.orderedSuit
                 ? `Замовлено: ${SUIT_NAMES_UK[state.orderedSuit]}`
                 : state.phase === 'must_cover_six'
-                  ? `Покрий 6 (${SUIT_SYMBOLS[state.activeSuit]} або 6)`
+                  ? `Покрий ${state.discardPile[state.discardPile.length - 1]?.rank ?? '6'} (${SUIT_SYMBOLS[state.activeSuit]} або ${state.discardPile[state.discardPile.length - 1]?.rank ?? '6'})`
                   : `Масть: ${SUIT_SYMBOLS[state.activeSuit]}`}
             </span>
           </div>
@@ -551,7 +551,7 @@ export const GameTable: React.FC<GameTableProps> = ({
                 onClick={handleDraw}
                 className="px-3 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 border border-white/20 text-white text-xs font-bold active:scale-95 transition"
               >
-                {state.phase === 'must_cover_six' ? 'Тягнути на 6' : 'Взяти карту'}
+                {state.phase === 'must_cover_six' ? 'Тягнути карту' : 'Взяти карту'}
               </button>
             )}
 
@@ -621,6 +621,55 @@ export const GameTable: React.FC<GameTableProps> = ({
         <SuitPickerModal onSelect={handleChooseSuit} />
       )}
 
+      {/* Queen of Spades Choice Modal */}
+      {state.phase === 'queen_spades_choice' && isMyTurn && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="w-full max-w-xs rounded-3xl bg-[#0e2f1d] border border-amber-400/50 p-5 shadow-2xl text-center space-y-4"
+          >
+            <div className="text-3xl">👑♠️</div>
+            <div>
+              <h3 className="text-xl font-black text-white">Пікова Дама!</h3>
+              <p className="text-xs text-emerald-200/80 mt-1">
+                Оберіть покарання: взяти 5 карт і пропустити хід або взяти 8 карт і ходити.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic('medium');
+                  onAction({
+                    type: 'CHOOSE_QUEEN_SPADES',
+                    playerId: southPlayer.id,
+                    option: 'take5_skip',
+                  });
+                }}
+                className="w-full py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-sm shadow-lg active:scale-95 transition"
+              >
+                Взяти 5 карт і пропустити
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic('heavy');
+                  onAction({
+                    type: 'CHOOSE_QUEEN_SPADES',
+                    playerId: southPlayer.id,
+                    option: 'take8_play',
+                  });
+                }}
+                className="w-full py-3 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white font-bold text-sm active:scale-95 transition"
+              >
+                Взяти 8 карт і ходити
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       {/* Optional Bridge Choice Modal */}
       {state.phase === 'bridge_choice' && isMyTurn && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
@@ -670,7 +719,12 @@ export const GameTable: React.FC<GameTableProps> = ({
       )}
 
       {/* Rules Modal */}
-      {showRules && <RulesModal onClose={() => setShowRules(false)} />}
+      {showRules && (
+        <RulesModal
+          bridgeMode={state.bridgeMode ?? 'kalynivskyi'}
+          onClose={() => setShowRules(false)}
+        />
+      )}
 
       {/* Room Chat Drawer */}
       {showChat && roomCode && onSendChat && (

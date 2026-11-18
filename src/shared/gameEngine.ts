@@ -1,4 +1,5 @@
 import type {
+  BridgeMode,
   Card,
   GameAction,
   GameLogEntry,
@@ -10,7 +11,8 @@ import type {
 } from './types';
 
 export const SUITS: Suit[] = ['spades', 'hearts', 'diamonds', 'clubs'];
-export const RANKS: Rank[] = ['6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+export const DURAK_RANKS: Rank[] = ['6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+export const RANKS: Rank[] = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 
 export const SUIT_SYMBOLS: Record<Suit, string> = {
   spades: '♠',
@@ -32,10 +34,10 @@ export function formatCard(card: Card): string {
   return `${card.rank}${SUIT_SYMBOLS[card.suit]}`;
 }
 
-export function createDeck(): Card[] {
+export function createDeck(ranks: Rank[] = RANKS): Card[] {
   const deck: Card[] = [];
   for (const suit of SUITS) {
-    for (const rank of RANKS) {
+    for (const rank of ranks) {
       deck.push({ id: `${rank}_${suit}`, suit, rank });
     }
   }
@@ -67,28 +69,60 @@ function appendLogs(existing: GameLogEntry[], ...entries: GameLogEntry[]): GameL
   return [...existing, ...entries].slice(-MAX_LOGS);
 }
 
-export function getCardPoints(card: Card): number {
+export function getCardPoints(
+  card: Card,
+  bridgeMode: BridgeMode = 'kalynivskyi',
+): number {
+  if (bridgeMode === 'classic') {
+    switch (card.rank) {
+      case '2':
+      case '3':
+      case '4':
+      case '5':
+      case '6':
+      case '7':
+      case '8':
+      case '9':
+        return 0;
+      case '10':
+        return 10;
+      case 'Q':
+        return 3;
+      case 'K':
+        return card.suit === 'spades' ? 40 : 4;
+      case 'A':
+        return 11;
+      case 'J':
+        return 20;
+    }
+  }
   switch (card.rank) {
+    case '2':
+    case '3':
+    case '4':
     case '6':
     case '7':
     case '8':
     case '9':
-      return 0;
     case '10':
-      return 10;
+      return 0;
+    case '5':
+      return 5;
     case 'Q':
-      return 3;
     case 'K':
-      return card.suit === 'spades' ? 40 : 4;
+      return 10;
     case 'A':
-      return 11;
+      return 15;
     case 'J':
       return 20;
   }
 }
 
-export function calculateHandPoints(hand: Card[]): number {
-  return hand.reduce((sum, card) => sum + getCardPoints(card), 0);
+export function calculateHandPoints(
+  hand: Card[],
+  bridgeMode: BridgeMode = 'kalynivskyi',
+): number {
+  return hand.reduce((sum, card) => sum + getCardPoints(card, bridgeMode), 0);
 }
 
 export function advanceActivePlayer(
@@ -172,7 +206,7 @@ export function isCardPlayable(card: Card, state: GameState): boolean {
   if (!topCard) return false;
 
   if (state.phase === 'must_cover_six') {
-    return card.rank === 'J' || card.rank === '6' || card.suit === state.activeSuit;
+    return card.rank === 'J' || card.rank === topCard.rank || card.suit === state.activeSuit;
   }
 
   // Normal 'playing' phase
@@ -190,8 +224,8 @@ export function isCardPlayable(card: Card, state: GameState): boolean {
 export function canPlayerMakeAnyPlay(player: Player, state: GameState): boolean {
   return player.hand.some((card) => {
     if (!isCardPlayable(card, state)) return false;
-    // Cannot play 6 as the last card in hand
-    if (card.rank === '6' && player.hand.length === 1) return false;
+    // Cannot play 2 or 6 as the last card in hand (must be covered)
+    if ((card.rank === '6' || card.rank === '2') && player.hand.length === 1) return false;
     return true;
   });
 }
@@ -228,9 +262,9 @@ export function validateSeriesPlay(
     return { valid: false, reason: 'Перша карта серії не підходить до карти на столі.' };
   }
 
-  // Forbidden to play 6 as last card(s) in hand
-  if (seriesRank === '6' && cards.length === hand.length) {
-    return { valid: false, reason: 'Заборонено скидати 6 останньою картою в руці.' };
+  // Forbidden to play 2 or 6 as last card(s) in hand
+  if ((seriesRank === '6' || seriesRank === '2') && cards.length === hand.length) {
+    return { valid: false, reason: `Заборонено скидати ${seriesRank} останньою картою в руці.` };
   }
 
   return { valid: true, cards };
@@ -243,6 +277,7 @@ function finalizeRound(
   lastPlayedCards: Card[],
   extraLogs: GameLogEntry[],
 ): GameState {
+  const mode = state.bridgeMode ?? 'kalynivskyi';
   const winner = state.players.find((p) => p.id === winnerId)!;
   const deltas: Record<string, number> = {};
   const totals: Record<string, number> = {};
@@ -251,6 +286,7 @@ function finalizeRound(
   const multiplier = Math.max(1, state.reshuffleCount ?? 0);
 
   const endedWithJack =
+    mode === 'classic' &&
     winReason === 'empty_hand' &&
     lastPlayedCards.length > 0 &&
     lastPlayedCards[lastPlayedCards.length - 1].rank === 'J';
@@ -268,7 +304,7 @@ function finalizeRound(
         delta = -20 * lastPlayedCards.length;
       }
     } else {
-      delta = calculateHandPoints(p.hand) * multiplier;
+      delta = calculateHandPoints(p.hand, mode) * multiplier;
     }
 
     // Minimum score is 0 (Jack subtraction cannot go below 0)
@@ -368,6 +404,7 @@ function applyOpeningCardEffect(
   firstPlayerIndex: number,
   rng: () => number,
 ): GameState {
+  const mode = state.bridgeMode ?? 'kalynivskyi';
   const firstPlayer = state.players[firstPlayerIndex];
   const logs: GameLogEntry[] = [
     makeLog(`Раунд ${state.round}. Стартова карта: ${formatCard(openingCard)}`),
@@ -378,10 +415,10 @@ function applyOpeningCardEffect(
   let reshuffleCount = state.reshuffleCount ?? 0;
   const players = state.players.map((p) => ({ ...p, hand: [...p.hand] }));
 
-  if (openingCard.rank === '6') {
+  if (openingCard.rank === '6' || openingCard.rank === '2') {
     logs.push(
       makeLog(
-        `Стартова 6${SUIT_SYMBOLS[openingCard.suit]}! ${firstPlayer.name} має її покрити.`,
+        `Стартова ${formatCard(openingCard)}! ${firstPlayer.name} має її покрити.`,
         'special',
       ),
     );
@@ -394,15 +431,21 @@ function applyOpeningCardEffect(
   }
 
   if (openingCard.rank === '7') {
-    const res = drawFromDeck(deck, discardPile, 2, rng);
+    const count = mode === 'classic' ? 2 : 1;
+    const res = drawFromDeck(deck, discardPile, count, rng);
     deck = res.deck;
     discardPile = res.discardPile;
     reshuffleCount += res.reshuffles;
     players[firstPlayerIndex].hand.push(...res.drawn);
-    const nextIdx = advanceActivePlayer(players, firstPlayerIndex, 1);
+    const nextIdx =
+      mode === 'classic'
+        ? advanceActivePlayer(players, firstPlayerIndex, 1)
+        : firstPlayerIndex;
     logs.push(
       makeLog(
-        `Стартова 7: ${firstPlayer.name} бере ${res.drawn.length} карти і пропускає хід.`,
+        mode === 'classic'
+          ? `Стартова 7: ${firstPlayer.name} бере ${res.drawn.length} карти і пропускає хід.`
+          : `Стартова 7: ${firstPlayer.name} бере ${res.drawn.length} карту і ходить.`,
         'special',
       ),
     );
@@ -418,14 +461,21 @@ function applyOpeningCardEffect(
   }
 
   if (openingCard.rank === '8') {
-    const res = drawFromDeck(deck, discardPile, 1, rng);
+    const count = mode === 'classic' ? 1 : 2;
+    const res = drawFromDeck(deck, discardPile, count, rng);
     deck = res.deck;
     discardPile = res.discardPile;
     reshuffleCount += res.reshuffles;
     players[firstPlayerIndex].hand.push(...res.drawn);
+    const nextIdx =
+      mode === 'classic'
+        ? firstPlayerIndex
+        : advanceActivePlayer(players, firstPlayerIndex, 1);
     logs.push(
       makeLog(
-        `Стартова 8: ${firstPlayer.name} бере 1 карту і ходить.`,
+        mode === 'classic'
+          ? `Стартова 8: ${firstPlayer.name} бере 1 карту і ходить.`
+          : `Стартова 8: ${firstPlayer.name} бере ${res.drawn.length} карти і пропускає хід.`,
         'special',
       ),
     );
@@ -435,12 +485,12 @@ function applyOpeningCardEffect(
       deck,
       discardPile,
       reshuffleCount,
-      currentPlayerIndex: firstPlayerIndex,
+      currentPlayerIndex: nextIdx,
       logs: appendLogs(state.logs, ...logs),
     };
   }
 
-  if (openingCard.rank === 'K' && openingCard.suit === 'spades') {
+  if (mode === 'classic' && openingCard.rank === 'K' && openingCard.suit === 'spades') {
     const res = drawFromDeck(deck, discardPile, 4, rng);
     deck = res.deck;
     discardPile = res.discardPile;
@@ -460,6 +510,21 @@ function applyOpeningCardEffect(
       discardPile,
       reshuffleCount,
       currentPlayerIndex: nextIdx,
+      logs: appendLogs(state.logs, ...logs),
+    };
+  }
+
+  if (mode === 'kalynivskyi' && openingCard.rank === 'Q' && openingCard.suit === 'spades') {
+    logs.push(
+      makeLog(
+        `Стартова Q♠! ${firstPlayer.name} обирає: взяти 5 і пропустити або взяти 8 і ходити.`,
+        'special',
+      ),
+    );
+    return {
+      ...state,
+      phase: 'queen_spades_choice',
+      currentPlayerIndex: firstPlayerIndex,
       logs: appendLogs(state.logs, ...logs),
     };
   }
@@ -500,6 +565,7 @@ export function createMatch(
     isBot?: boolean;
     avatarUrl?: string;
   }>,
+  bridgeMode: BridgeMode = 'kalynivskyi',
   rng: () => number = Math.random,
 ): GameState {
   const players: Player[] = playerInfos.map((info) => ({
@@ -516,6 +582,7 @@ export function createMatch(
   return dealRound(
     {
       round: 0,
+      bridgeMode,
       players,
       dealerIndex: 0,
       currentPlayerIndex: 0,
@@ -542,7 +609,8 @@ export function dealRound(
   dealerIndex: number,
   rng: () => number = Math.random,
 ): GameState {
-  const deck = shuffleDeck(createDeck(), rng);
+  const mode = prevState.bridgeMode ?? 'kalynivskyi';
+  const deck = shuffleDeck(createDeck(mode === 'classic' ? DURAK_RANKS : RANKS), rng);
   const players: Player[] = prevState.players.map((p) => ({ ...p, hand: [] }));
 
   const activeDealerIndex = players[dealerIndex]?.eliminated
@@ -590,6 +658,7 @@ function resolveSpecialEffects(
   logs: GameLogEntry[],
   rng: () => number,
 ): GameState {
+  const mode = updatedState.bridgeMode ?? 'kalynivskyi';
   const activePlayer = updatedState.players[updatedState.currentPlayerIndex];
   const lastCard = playedCards[playedCards.length - 1];
   const players = updatedState.players.map((p) => ({ ...p, hand: [...p.hand] }));
@@ -603,7 +672,7 @@ function resolveSpecialEffects(
   }
 
   // Apply special effect of the last played card
-  if (lastCard.rank === '6') {
+  if (lastCard.rank === '6' || lastCard.rank === '2') {
     logs.push(
       makeLog(`${activePlayer.name} має покрити ${formatCard(lastCard)}!`, 'special'),
     );
@@ -626,15 +695,21 @@ function resolveSpecialEffects(
 
   if (lastCard.rank === '7') {
     const victimIdx = advanceActivePlayer(players, updatedState.currentPlayerIndex, 1);
-    const res = drawFromDeck(deck, discardPile, 2, rng);
+    const drawCount = mode === 'classic' ? 2 : playedCards.length;
+    const res = drawFromDeck(deck, discardPile, drawCount, rng);
     deck = res.deck;
     discardPile = res.discardPile;
     reshuffleCount += res.reshuffles;
     players[victimIdx].hand.push(...res.drawn);
-    const nextIdx = advanceActivePlayer(players, updatedState.currentPlayerIndex, 2);
+    const nextIdx =
+      mode === 'classic'
+        ? advanceActivePlayer(players, updatedState.currentPlayerIndex, 2)
+        : victimIdx;
     logs.push(
       makeLog(
-        `${players[victimIdx].name} бере ${res.drawn.length} карти і пропускає хід.`,
+        mode === 'classic'
+          ? `${players[victimIdx].name} бере ${res.drawn.length} карти і пропускає хід.`
+          : `Сімка! ${players[victimIdx].name} бере ${res.drawn.length} карт(и) і ходить.`,
         'special',
       ),
     );
@@ -651,13 +726,25 @@ function resolveSpecialEffects(
   }
 
   if (lastCard.rank === '8') {
-    const nextIdx = advanceActivePlayer(players, updatedState.currentPlayerIndex, 1);
-    const res = drawFromDeck(deck, discardPile, 1, rng);
+    const victimIdx = advanceActivePlayer(players, updatedState.currentPlayerIndex, 1);
+    const drawCount = mode === 'classic' ? 1 : 2 * playedCards.length;
+    const res = drawFromDeck(deck, discardPile, drawCount, rng);
     deck = res.deck;
     discardPile = res.discardPile;
     reshuffleCount += res.reshuffles;
-    players[nextIdx].hand.push(...res.drawn);
-    logs.push(makeLog(`${players[nextIdx].name} бере 1 карту і ходить.`, 'special'));
+    players[victimIdx].hand.push(...res.drawn);
+    const nextIdx =
+      mode === 'classic'
+        ? victimIdx
+        : advanceActivePlayer(players, updatedState.currentPlayerIndex, 2);
+    logs.push(
+      makeLog(
+        mode === 'classic'
+          ? `${players[victimIdx].name} бере 1 карту і ходить.`
+          : `Вісімка! ${players[victimIdx].name} бере ${res.drawn.length} карт(и) і пропускає хід.`,
+        'special',
+      ),
+    );
     return {
       ...updatedState,
       players,
@@ -670,7 +757,7 @@ function resolveSpecialEffects(
     };
   }
 
-  if (lastCard.rank === 'K' && lastCard.suit === 'spades') {
+  if (mode === 'classic' && lastCard.rank === 'K' && lastCard.suit === 'spades') {
     const victimIdx = advanceActivePlayer(players, updatedState.currentPlayerIndex, 1);
     const res = drawFromDeck(deck, discardPile, 4, rng);
     deck = res.deck;
@@ -692,6 +779,22 @@ function resolveSpecialEffects(
       reshuffleCount,
       phase: 'playing',
       currentPlayerIndex: nextIdx,
+      logs: appendLogs(updatedState.logs, ...logs),
+    };
+  }
+
+  if (mode === 'kalynivskyi' && playedCards.some((c) => c.rank === 'Q' && c.suit === 'spades')) {
+    const victimIdx = advanceActivePlayer(players, updatedState.currentPlayerIndex, 1);
+    logs.push(
+      makeLog(
+        `Пікова Дама Q♠! ${players[victimIdx].name} обирає: взяти 5 і пропустити або взяти 8 і ходити.`,
+        'special',
+      ),
+    );
+    return {
+      ...updatedState,
+      phase: 'queen_spades_choice',
+      currentPlayerIndex: victimIdx,
       logs: appendLogs(updatedState.logs, ...logs),
     };
   }
@@ -758,7 +861,7 @@ export function applyAction(
       name: wp.name,
       isBot: wp.isBot,
     }));
-    return createMatch([...state.players, ...joinedPlayers], rng);
+    return createMatch([...state.players, ...joinedPlayers], state.bridgeMode ?? 'kalynivskyi', rng);
   }
 
   const activePlayer = state.players[state.currentPlayerIndex];
@@ -841,6 +944,33 @@ export function applyAction(
       const playedCards = state.discardPile.slice(-count);
       const log = makeLog(`${activePlayer.name} продовжує гру без Бриджу.`);
       return resolveSpecialEffects(state, playedCards, [log], rng);
+    }
+
+    case 'CHOOSE_QUEEN_SPADES': {
+      if (state.phase !== 'queen_spades_choice') return state;
+      const players = state.players.map((p) => ({ ...p, hand: [...p.hand] }));
+      const count = action.option === 'take5_skip' ? 5 : 8;
+      const res = drawFromDeck(state.deck, state.discardPile, count, rng);
+      const reshuffleCount = (state.reshuffleCount ?? 0) + res.reshuffles;
+      players[state.currentPlayerIndex].hand.push(...res.drawn);
+      const nextIdx =
+        action.option === 'take5_skip'
+          ? advanceActivePlayer(players, state.currentPlayerIndex, 1)
+          : state.currentPlayerIndex;
+      const logText =
+        action.option === 'take5_skip'
+          ? `Q♠: ${activePlayer.name} бере ${res.drawn.length} карт і пропускає хід.`
+          : `Q♠: ${activePlayer.name} бере ${res.drawn.length} карт і ходить.`;
+      return {
+        ...state,
+        players,
+        deck: res.deck,
+        discardPile: res.discardPile,
+        reshuffleCount,
+        phase: 'playing',
+        currentPlayerIndex: nextIdx,
+        logs: appendLogs(state.logs, makeLog(logText, 'special')),
+      };
     }
 
     case 'CHOOSE_SUIT': {
@@ -931,7 +1061,8 @@ export function applyAction(
 
       const drawnPlayable =
         isCardPlayable(drawnCard, nextState) &&
-        !(drawnCard.rank === '6' && players[state.currentPlayerIndex].hand.length === 1);
+        !((drawnCard.rank === '6' || drawnCard.rank === '2') &&
+          players[state.currentPlayerIndex].hand.length === 1);
 
       if (drawnPlayable) {
         logs.push(makeLog(`${activePlayer.name} взяв карту з колоди.`));

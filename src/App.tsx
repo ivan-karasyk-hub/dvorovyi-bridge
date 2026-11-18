@@ -5,6 +5,7 @@ import { applyHoldemAction, createHoldemMatch } from './shared/holdemEngine';
 import type {
   AdminOnlinePlayer,
   AdminRoomInfo,
+  BridgeMode,
   ChatMessage,
   ClientMessage,
   DurakAction,
@@ -69,6 +70,7 @@ export const App: React.FC = () => {
   const [sandboxDurakState, setSandboxDurakState] = useState<DurakState | null>(null);
   const [sandboxHoldemState, setSandboxHoldemState] = useState<HoldemState | null>(null);
   const [selectedGameType, setSelectedGameType] = useState<GameType>('bridge');
+  const [selectedBridgeMode, setSelectedBridgeMode] = useState<BridgeMode>('kalynivskyi');
   const [selectedDurakMode, setSelectedDurakMode] = useState<DurakMode>('podkidnoy');
   const [wallet, setWallet] = useState<WalletSummary | null>(null);
   const [leaderboard, setLeaderboard] = useState<WalletSummary[]>([]);
@@ -273,6 +275,7 @@ export const App: React.FC = () => {
       playerId,
       avatarUrl,
       gameType: selectedGameType,
+      bridgeMode: selectedBridgeMode,
       durakMode: selectedDurakMode,
       isPublic,
       password,
@@ -285,9 +288,20 @@ export const App: React.FC = () => {
     sendWs({ type: 'JOIN_ROOM', code, playerName, playerId, avatarUrl, password });
   };
 
-  const handleSetRoomGame = (gameType: GameType, durakMode: DurakMode) => {
+  const handleSetRoomGame = (
+    gameType: GameType,
+    durakMode: DurakMode,
+    bridgeMode?: BridgeMode,
+  ) => {
     if (!room) return;
-    sendWs({ type: 'SET_ROOM_GAME', code: room.code, playerId, gameType, durakMode });
+    sendWs({
+      type: 'SET_ROOM_GAME',
+      code: room.code,
+      playerId,
+      gameType,
+      bridgeMode: bridgeMode ?? room.bridgeMode ?? selectedBridgeMode,
+      durakMode,
+    });
   };
 
   const handleAddBot = () => {
@@ -330,7 +344,7 @@ export const App: React.FC = () => {
     } else if (selectedGameType === 'holdem') {
       setSandboxHoldemState(createHoldemMatch(players));
     } else {
-      setSandboxState(createMatch(players));
+      setSandboxState(createMatch(players, selectedBridgeMode));
     }
   };
 
@@ -547,8 +561,10 @@ export const App: React.FC = () => {
         incomingRequests={incomingRequests}
         publicRooms={publicRooms}
         selectedGameType={selectedGameType}
+        selectedBridgeMode={selectedBridgeMode}
         selectedDurakMode={selectedDurakMode}
         onSelectGameType={setSelectedGameType}
+        onSelectBridgeMode={setSelectedBridgeMode}
         onSelectDurakMode={setSelectedDurakMode}
         onSetRoomGame={handleSetRoomGame}
         onClaimBonus={() => sendWs({ type: 'CLAIM_BONUS', playerId, playerName })}

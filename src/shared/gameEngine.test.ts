@@ -44,24 +44,24 @@ function makeTestState(overrides: Partial<GameState> = {}): GameState {
 }
 
 describe('gameEngine', () => {
-  it('creates a 36-card deck and deals 5 cards to non-dealers and 4 to dealer + 1 face-up', () => {
-    expect(createDeck()).toHaveLength(36);
+  it('creates a 52-card deck and deals 5 cards to non-dealers and 4 to dealer + 1 face-up', () => {
+    expect(createDeck()).toHaveLength(52);
     const state = createMatch([
       { id: 'p1', name: 'Аліса' },
       { id: 'p2', name: 'Богдан' },
       { id: 'p3', name: 'Віктор' },
     ]);
     expect(state.players[0].hand).toHaveLength(4); // dealer
-    // Note: if opening card was 7/8/K♠, p2 might have drawn extra cards
+    // Note: if opening card was 7/8/Q♠, p2 might have drawn extra cards
     expect(state.discardPile).toHaveLength(1);
     const totalCards =
       state.players.reduce((s, p) => s + p.hand.length, 0) +
       state.deck.length +
       state.discardPile.length;
-    expect(totalCards).toBe(36);
+    expect(totalCards).toBe(52);
   });
 
-  it('supports 6 players cleanly with a 36-card deck', () => {
+  it('supports 6 players cleanly with a 52-card deck', () => {
     const state = createMatch([
       { id: 'p1', name: 'G1' },
       { id: 'p2', name: 'G2' },
@@ -75,7 +75,7 @@ describe('gameEngine', () => {
       state.players.reduce((s, p) => s + p.hand.length, 0) +
       state.deck.length +
       state.discardPile.length;
-    expect(totalCards).toBe(36);
+    expect(totalCards).toBe(52);
   });
 
   it('enforces 6 rules: must cover in same turn and forbidden as last card', () => {
@@ -110,41 +110,72 @@ describe('gameEngine', () => {
     expect(validation.valid).toBe(false);
   });
 
-  it('applies 7, 8, K♠, and N Aces correctly', () => {
-    // 7 -> next draws 2 and skips
+  it('applies 2, 7 (single/multi), 8 (single/multi), Q♠, and N Aces correctly', () => {
+    // 2 -> must cover in same turn
+    const s2 = makeTestState({
+      players: [
+        { id: 'p1', name: 'P1', hand: [c('2', 'spades'), c('9', 'spades')], score: 0, connected: true },
+        { id: 'p2', name: 'P2', hand: [c('Q', 'clubs')], score: 0, connected: true },
+      ],
+    });
+    const after2 = applyAction(s2, { type: 'PLAY_CARDS', playerId: 'p1', cardIds: ['2_spades'] });
+    expect(after2.phase).toBe('must_cover_six');
+    expect(after2.currentPlayerIndex).toBe(0);
+
+    // two 7s -> next draws 2 and plays
     const s7 = makeTestState({
       players: [
-        { id: 'p1', name: 'P1', hand: [c('7', 'spades'), c('9', 'clubs')], score: 0, connected: true },
+        { id: 'p1', name: 'P1', hand: [c('7', 'spades'), c('7', 'hearts'), c('9', 'clubs')], score: 0, connected: true },
         { id: 'p2', name: 'P2', hand: [c('Q', 'clubs')], score: 0, connected: true },
         { id: 'p3', name: 'P3', hand: [c('8', 'clubs')], score: 0, connected: true },
       ],
     });
-    const after7 = applyAction(s7, { type: 'PLAY_CARDS', playerId: 'p1', cardIds: ['7_spades'] });
+    const after7 = applyAction(s7, { type: 'PLAY_CARDS', playerId: 'p1', cardIds: ['7_spades', '7_hearts'] });
     expect(after7.players[1].hand).toHaveLength(3); // 1 + 2
-    expect(after7.currentPlayerIndex).toBe(2); // skipped p2
+    expect(after7.currentPlayerIndex).toBe(1); // p2 still goes!
 
-    // 8 -> next draws 1 and does NOT skip
+    // two 8s -> next draws 4 and only p2 skips
     const s8 = makeTestState({
       players: [
-        { id: 'p1', name: 'P1', hand: [c('8', 'spades'), c('9', 'clubs')], score: 0, connected: true },
+        { id: 'p1', name: 'P1', hand: [c('8', 'spades'), c('8', 'hearts'), c('9', 'clubs')], score: 0, connected: true },
         { id: 'p2', name: 'P2', hand: [c('Q', 'clubs')], score: 0, connected: true },
+        { id: 'p3', name: 'P3', hand: [c('4', 'clubs')], score: 0, connected: true },
       ],
     });
-    const after8 = applyAction(s8, { type: 'PLAY_CARDS', playerId: 'p1', cardIds: ['8_spades'] });
-    expect(after8.players[1].hand).toHaveLength(2); // 1 + 1
-    expect(after8.currentPlayerIndex).toBe(1); // p2 goes
+    const after8 = applyAction(s8, { type: 'PLAY_CARDS', playerId: 'p1', cardIds: ['8_spades', '8_hearts'] });
+    expect(after8.players[1].hand).toHaveLength(5); // 1 + 4
+    expect(after8.currentPlayerIndex).toBe(2); // skipped p2, now p3
 
-    // K♠ -> next draws 4 and skips
-    const sk = makeTestState({
+    // Q♠ -> next chooses take5_skip OR take8_play
+    const sq = makeTestState({
+      deck: [
+        c('2', 'hearts'),
+        c('3', 'hearts'),
+        c('4', 'hearts'),
+        c('5', 'hearts'),
+        c('6', 'hearts'),
+        c('9', 'hearts'),
+        c('10', 'hearts'),
+        c('Q', 'hearts'),
+        c('K', 'hearts'),
+      ],
       players: [
-        { id: 'p1', name: 'P1', hand: [c('K', 'spades'), c('9', 'clubs')], score: 0, connected: true },
-        { id: 'p2', name: 'P2', hand: [c('Q', 'clubs')], score: 0, connected: true },
-        { id: 'p3', name: 'P3', hand: [c('8', 'clubs')], score: 0, connected: true },
+        { id: 'p1', name: 'P1', hand: [c('Q', 'spades'), c('9', 'clubs')], score: 0, connected: true },
+        { id: 'p2', name: 'P2', hand: [c('4', 'clubs')], score: 0, connected: true },
+        { id: 'p3', name: 'P3', hand: [c('3', 'clubs')], score: 0, connected: true },
       ],
     });
-    const afterK = applyAction(sk, { type: 'PLAY_CARDS', playerId: 'p1', cardIds: ['K_spades'] });
-    expect(afterK.players[1].hand).toHaveLength(5); // 1 + 4
-    expect(afterK.currentPlayerIndex).toBe(2);
+    const afterQ = applyAction(sq, { type: 'PLAY_CARDS', playerId: 'p1', cardIds: ['Q_spades'] });
+    expect(afterQ.phase).toBe('queen_spades_choice');
+    expect(afterQ.currentPlayerIndex).toBe(1);
+
+    const qTake5 = applyAction(afterQ, { type: 'CHOOSE_QUEEN_SPADES', playerId: 'p2', option: 'take5_skip' });
+    expect(qTake5.players[1].hand).toHaveLength(6); // 1 + 5
+    expect(qTake5.currentPlayerIndex).toBe(2); // skipped p2
+
+    const qTake8 = applyAction(afterQ, { type: 'CHOOSE_QUEEN_SPADES', playerId: 'p2', option: 'take8_play' });
+    expect(qTake8.players[1].hand).toHaveLength(9); // 1 + 8
+    expect(qTake8.currentPlayerIndex).toBe(1); // p2 plays
 
     // 2 Aces in 3-player game -> skips 2 players, returns to p1
     const sa = makeTestState({
@@ -173,7 +204,7 @@ describe('gameEngine', () => {
           score: 0,
           connected: true,
         },
-        { id: 'p2', name: 'P2', hand: [c('10', 'clubs')], score: 0, connected: true },
+        { id: 'p2', name: 'P2', hand: [c('Q', 'clubs')], score: 0, connected: true },
       ],
     });
     const afterPlay = applyAction(state, {
@@ -196,10 +227,14 @@ describe('gameEngine', () => {
     expect(declined.currentPlayerIndex).toBe(1);
   });
 
-  it('applies Jack -20/-40 finish, exact 125 reset to 0, and >=126 defeat', () => {
+  it('applies card point values, exact 125 reset to 0, and >=126 defeat', () => {
     // Scoring values check
     expect(
       calculateHandPoints([
+        c('2', 'spades'),
+        c('3', 'hearts'),
+        c('4', 'diamonds'),
+        c('5', 'clubs'),
         c('6', 'spades'),
         c('7', 'hearts'),
         c('8', 'diamonds'),
@@ -207,20 +242,19 @@ describe('gameEngine', () => {
         c('10', 'hearts'),
         c('Q', 'spades'),
         c('K', 'hearts'),
-        c('K', 'spades'),
         c('A', 'diamonds'),
         c('J', 'clubs'),
       ]),
-    ).toBe(0 + 0 + 0 + 0 + 10 + 3 + 4 + 40 + 11 + 20);
+    ).toBe(0 + 0 + 0 + 5 + 0 + 0 + 0 + 0 + 0 + 10 + 10 + 15 + 20);
 
-    // Jack finish (-40 for 2 Jacks) & 125 -> 0 reset
+    // No Jack finish bonus & 125 -> 0 reset
     const state = makeTestState({
       players: [
         { id: 'p1', name: 'P1', hand: [c('J', 'spades'), c('J', 'hearts')], score: 10, connected: true },
         {
           id: 'p2',
           name: 'P2',
-          hand: [c('K', 'spades'), c('10', 'hearts')], // 40 + 10 = 50 -> 75 + 50 = 125 -> 0
+          hand: [c('J', 'clubs'), c('A', 'spades'), c('Q', 'hearts'), c('5', 'hearts')], // 20 + 15 + 10 + 5 = 50 -> 75 + 50 = 125 -> 0
           score: 75,
           connected: true,
         },
@@ -231,7 +265,7 @@ describe('gameEngine', () => {
       playerId: 'p1',
       cardIds: ['J_spades', 'J_hearts'],
     });
-    expect(afterJack.players[0].score).toBe(0); // 10 - 40 clamped at min 0
+    expect(afterJack.players[0].score).toBe(10); // no Jack subtraction
     expect(afterJack.players[1].score).toBe(0); // 125 reset to 0
     expect(afterJack.phase).toBe('round_over');
 
@@ -240,7 +274,7 @@ describe('gameEngine', () => {
       reshuffleCount: 2,
       players: [
         { id: 'p1', name: 'P1', hand: [c('9', 'spades')], score: 0, connected: true },
-        { id: 'p2', name: 'P2', hand: [c('10', 'hearts')], score: 0, connected: true }, // 10 * 2 = 20
+        { id: 'p2', name: 'P2', hand: [c('Q', 'hearts')], score: 0, connected: true }, // 10 * 2 = 20
       ],
     });
     const afterReshuffle = applyAction(reshuffleState, {
@@ -254,8 +288,8 @@ describe('gameEngine', () => {
     const elimState = makeTestState({
       players: [
         { id: 'p1', name: 'P1', hand: [c('9', 'spades')], score: 0, connected: true },
-        { id: 'p2', name: 'P2', hand: [c('K', 'spades')], score: 86, connected: true }, // 86 + 40 = 126 -> eliminated
-        { id: 'p3', name: 'P3', hand: [c('10', 'hearts')], score: 10, connected: true },
+        { id: 'p2', name: 'P2', hand: [c('J', 'spades')], score: 106, connected: true }, // 106 + 20 = 126 -> eliminated
+        { id: 'p3', name: 'P3', hand: [c('Q', 'hearts')], score: 10, connected: true },
       ],
     });
     const afterElim = applyAction(elimState, {
@@ -274,7 +308,7 @@ describe('gameEngine', () => {
     const loseState = makeTestState({
       players: [
         { id: 'p1', name: 'P1', hand: [c('9', 'spades')], score: 0, connected: true },
-        { id: 'p2', name: 'P2', hand: [c('K', 'spades')], score: 86, connected: true }, // 86 + 40 = 126
+        { id: 'p2', name: 'P2', hand: [c('J', 'spades')], score: 106, connected: true }, // 106 + 20 = 126
       ],
     });
     const afterLose = applyAction(loseState, {
@@ -284,6 +318,24 @@ describe('gameEngine', () => {
     });
     expect(afterLose.phase).toBe('match_over');
     expect(afterLose.players[1].score).toBe(126);
+  });
+
+  it('supports classic (Дефолт) 36-card Bridge mode with K♠ and Jack finish bonus', () => {
+    const classic = createMatch(
+      [
+        { id: 'p1', name: 'P1' },
+        { id: 'p2', name: 'P2' },
+      ],
+      'classic',
+    );
+    expect(classic.bridgeMode).toBe('classic');
+    const total =
+      classic.players.reduce((s, p) => s + p.hand.length, 0) +
+      classic.deck.length +
+      classic.discardPile.length;
+    expect(total).toBe(36);
+    expect(calculateHandPoints([c('K', 'spades')], 'classic')).toBe(40);
+    expect(calculateHandPoints([c('10', 'hearts')], 'classic')).toBe(10);
   });
 
   it('sanitizes opponents hands for multiplayer', () => {
