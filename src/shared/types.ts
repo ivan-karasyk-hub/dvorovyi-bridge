@@ -87,7 +87,7 @@ export type GameAction =
   | { type: 'START_NEXT_ROUND'; playerId: string }
   | { type: 'REMATCH'; playerId: string };
 
-export type GameType = 'bridge' | 'durak' | 'holdem';
+export type GameType = 'bridge' | 'durak' | 'holdem' | 'blackjack';
 export type DurakMode = 'podkidnoy' | 'perevodnoy';
 
 export type HoldemRank =
@@ -175,6 +175,7 @@ export interface WalletSummary {
   chips: number;
   wins: number;
   isAdmin?: boolean;
+  banned?: boolean;
   nextDailyAt?: number;
 }
 
@@ -207,6 +208,41 @@ export interface BlackjackState {
   outcome: 'win' | 'blackjack' | 'lose' | 'push' | null;
   payout: number;
 }
+
+export interface BlackjackPlayerState {
+  id: string;
+  name: string;
+  hand: HoldemCard[];
+  score: number;
+  bet: number;
+  chips: number;
+  status: 'betting' | 'playing' | 'stood' | 'busted' | 'blackjack';
+  outcome: 'win' | 'blackjack' | 'lose' | 'push' | null;
+  payout: number;
+  isHost?: boolean;
+  isBot?: boolean;
+  connected: boolean;
+  avatarUrl?: string;
+}
+
+export type MultiBlackjackPhase = 'betting' | 'playing' | 'finished';
+
+export interface MultiBlackjackState {
+  round: number;
+  players: BlackjackPlayerState[];
+  dealerHand: HoldemCard[];
+  dealerScore: number;
+  currentPlayerIndex: number;
+  phase: MultiBlackjackPhase;
+  logs: GameLogEntry[];
+}
+
+export type MultiBlackjackAction =
+  | { type: 'BJ_PLACE_BET'; playerId: string; bet: number }
+  | { type: 'BJ_HIT'; playerId: string }
+  | { type: 'BJ_STAND'; playerId: string }
+  | { type: 'BJ_DOUBLE'; playerId: string }
+  | { type: 'BJ_NEW_ROUND'; playerId: string };
 
 export interface AdminOnlinePlayer {
   playerId: string;
@@ -329,6 +365,7 @@ export type ClientMessage =
   | { type: 'GAME_ACTION'; code: string; action: GameAction }
   | { type: 'DURAK_ACTION'; code: string; action: DurakAction }
   | { type: 'HOLDEM_ACTION'; code: string; action: HoldemAction }
+  | { type: 'MULTI_BJ_ACTION'; code: string; action: MultiBlackjackAction }
   | { type: 'GET_WALLET'; playerId: string; playerName: string }
   | { type: 'CLAIM_BONUS'; playerId: string; playerName: string }
   | { type: 'CLAIM_DAILY_BONUS'; playerId: string; playerName: string }
@@ -362,6 +399,7 @@ export type ServerMessage =
   | { type: 'GAME_STATE'; state: GameState }
   | { type: 'DURAK_STATE'; state: DurakState }
   | { type: 'HOLDEM_STATE'; state: HoldemState }
+  | { type: 'MULTI_BJ_STATE'; state: MultiBlackjackState }
   | { type: 'WALLET_UPDATE'; wallet: WalletSummary }
   | { type: 'DAILY_BONUS_RESULT'; amount: number; nextDailyAt: number }
   | { type: 'SERVER_CONFIG'; config: ServerConfig }

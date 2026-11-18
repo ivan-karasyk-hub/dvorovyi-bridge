@@ -19,6 +19,8 @@ import type {
   HoldemAction,
   HoldemState,
   InGameRoomInvite,
+  MultiBlackjackAction,
+  MultiBlackjackState,
   PublicRoomSummary,
   RoomInfo,
   ServerConfig,
@@ -38,6 +40,7 @@ import { DurakTable } from './components/DurakTable';
 import { HoldemTable } from './components/HoldemTable';
 import { SlotModal } from './components/SlotModal';
 import { BlackjackModal } from './components/BlackjackModal';
+import { MultiBlackjackTable } from './components/MultiBlackjackTable';
 import { ChatDrawer } from './components/ChatDrawer';
 
 function getWsUrl(): string {
@@ -62,6 +65,8 @@ export const App: React.FC = () => {
   const [onlineState, setOnlineState] = useState<GameState | null>(null);
   const [onlineDurakState, setOnlineDurakState] = useState<DurakState | null>(null);
   const [onlineHoldemState, setOnlineHoldemState] = useState<HoldemState | null>(null);
+  const [onlineMultiBlackjackState, setOnlineMultiBlackjackState] =
+    useState<MultiBlackjackState | null>(null);
   const [sandboxState, setSandboxState] = useState<GameState | null>(null);
   const [sandboxDurakState, setSandboxDurakState] = useState<DurakState | null>(null);
   const [sandboxHoldemState, setSandboxHoldemState] = useState<HoldemState | null>(null);
@@ -169,6 +174,8 @@ export const App: React.FC = () => {
             setOnlineDurakState(msg.state);
           } else if (msg.type === 'HOLDEM_STATE') {
             setOnlineHoldemState(msg.state);
+          } else if (msg.type === 'MULTI_BJ_STATE') {
+            setOnlineMultiBlackjackState(msg.state);
           } else if (msg.type === 'WALLET_UPDATE') {
             setWallet(msg.wallet);
           } else if (msg.type === 'LEADERBOARD') {
@@ -227,6 +234,7 @@ export const App: React.FC = () => {
             setOnlineState(null);
             setOnlineDurakState(null);
             setOnlineHoldemState(null);
+            setOnlineMultiBlackjackState(null);
             setError(msg.reason);
           } else if (msg.type === 'ADMIN_NOTICE') {
             setAdminNotice(msg.message);
@@ -313,6 +321,7 @@ export const App: React.FC = () => {
     setOnlineState(null);
     setOnlineDurakState(null);
     setOnlineHoldemState(null);
+    setOnlineMultiBlackjackState(null);
     setSandboxState(null);
     setSandboxDurakState(null);
     setSandboxHoldemState(null);
@@ -437,6 +446,28 @@ export const App: React.FC = () => {
             setSandboxState((prev) => (prev ? applyAction(prev, action) : null))
           }
           onLeave={() => setSandboxState(null)}
+        />
+      </>
+    );
+  }
+
+  if (onlineMultiBlackjackState && room) {
+    return (
+      <>
+        {inviteBanner}
+        <MultiBlackjackTable
+          state={onlineMultiBlackjackState}
+          myPlayerId={playerId}
+          myChips={wallet?.chips ?? 0}
+          roomCode={room.code}
+          chatMessages={roomChatMessages}
+          onSendChat={(text) =>
+            sendWs({ type: 'SEND_ROOM_CHAT', code: room.code, playerId, playerName, text })
+          }
+          onAction={(action: MultiBlackjackAction) =>
+            sendWs({ type: 'MULTI_BJ_ACTION', code: room.code, action })
+          }
+          onLeave={handleLeaveRoom}
         />
       </>
     );

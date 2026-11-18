@@ -24,7 +24,13 @@ import {
   sendFriendRequest,
 } from './friends';
 import { executeSlotSpin } from './slot';
-import { actBlackjack, dealBlackjack } from './blackjack';
+import { actBlackjack, calculateBlackjackScore, dealBlackjack } from './blackjack';
+import {
+  applyMultiBlackjackAction,
+  createMultiBlackjackSession,
+  sanitizeMultiBlackjackState,
+  type MultiBlackjackSession,
+} from './multiBlackjack';
 import {
   addChips,
   claimDailyBonus,
@@ -63,6 +69,7 @@ interface Room {
   gameState: GameState | null;
   durakState: DurakState | null;
   holdemState: HoldemState | null;
+  multiBlackjack: MultiBlackjackSession | null;
   holdemStartingChips: Record<string, number>;
   botTimer: ReturnType<typeof setTimeout> | null;
   turnTimer: ReturnType<typeof setTimeout> | null;
@@ -103,11 +110,16 @@ function send(ws: WebSocket, msg: ServerMessage): void {
   }
 }
 
+function getRoomMaxPlayers(gameType: GameType): number {
+  return gameType === 'blackjack' ? 4 : 6;
+}
+
 function getPublicRoomsList(): PublicRoomSummary[] {
   const list: PublicRoomSummary[] = [];
   for (const room of rooms.values()) {
     if (!room.isPublic) continue;
-    if (room.players.length >= 6) continue;
+    const maxPlayers = getRoomMaxPlayers(room.gameType);
+    if (room.players.length >= maxPlayers) continue;
     const host = room.players.find((p) => p.isHost) ?? room.players[0];
     list.push({
       code: room.code,
@@ -115,10 +127,13 @@ function getPublicRoomsList(): PublicRoomSummary[] {
       durakMode: room.durakMode,
       hostName: host?.name || 'Хост',
       playerCount: room.players.length,
-      maxPlayers: 6,
+      maxPlayers,
       hasPassword: Boolean(room.password),
       started:
-        room.gameState !== null || room.durakState !== null || room.holdemState !== null,
+        room.gameState !== null ||
+        room.durakState !== null ||
+        room.holdemState !== null ||
+        room.multiBlackjack !== null,
     });
   }
   return list;
@@ -140,7 +155,10 @@ function broadcastRoom(room: Room): void {
     hasPassword: Boolean(room.password),
     players: room.players,
     started:
-      room.gameState !== null || room.durakState !== null || room.holdemState !== null,
+      room.gameState !== null ||
+      room.durakState !== null ||
+      room.holdemState !== null ||
+      room.multiBlackjack !== null,
   };
   for (const [, ws] of room.sockets) {
     send(ws, { type: 'ROOM_STATE', room: info });
@@ -428,6 +446,57 @@ function broadcastHoldemState(room: Room): void {
   }
 }
 
+function broadcastMultiBlackjackState(room: Room): void {
+  if (!room.multiBlackjack) return;
+  const sanitized = sanitizeMultiBlackjackState(room.multiBlackjack.state);
+  for (const [, ws] of room.sockets) {
+    send(ws, { type: 'MULTI_BJ_STATE', state: sanitized });
+  }
+}
+
+async function syncMultiBlackjackWallets(room: Room): Promise<void> {
+  if (!room.multiBlackjack) return;
+  for (const p of room.multiBlackjack.state.players) {
+    if (p.isBot) continue;
+    const ws = room.sockets.get(p.id);
+    if (!ws) continue;
+    const w = await getOrCreateWallet(p.id, p.name);
+    send(ws, {
+      type: 'WALLET_UPDATE',
+      wallet: {
+        playerId: w.playerId,
+        name: w.name,
+        chips: w.chips,
+        wins: w.wins,
+        isAdmin: isAdminPlayer(w.playerId),
+        nextDailyAt: getNextDailyAt(w.playerId),
+      },
+    });
+  }
+}
+
+function scheduleMultiBlackjackBotTurnIfNeeded(room: Room): void {
+  clearBotTimer(room);
+  const session = room.multiBlackjack;
+  if (!session || session.state.phase !== 'playing' || room.sockets.size === 0) return;
+  const cur = session.state.players[session.state.currentPlayerIndex];
+  if (!cur || !cur.isBot || cur.status !== 'playing') return;
+
+  room.botTimer = setTimeout(() => {
+    room.botTimer = null;
+    if (!room.multiBlackjack || room.multiBlackjack.state.phase !== 'playing' || room.sockets.size === 0) return;
+    const active = room.multiBlackjack.state.players[room.multiBlackjack.state.currentPlayerIndex];
+    if (!active || !active.isBot || active.status !== 'playing') return;
+    const score = calculateBlackjackScore(active.hand);
+    const actionType = score < 17 ? 'BJ_HIT' : 'BJ_STAND';
+    void applyMultiBlackjackAction(room.multiBlackjack, { type: actionType, playerId: active.id }).then(() => {
+      broadcastMultiBlackjackState(room);
+      void syncMultiBlackjackWallets(room);
+      scheduleMultiBlackjackBotTurnIfNeeded(room);
+    });
+  }, BOT_DELAY_MS);
+}
+
 function broadcastGameState(room: Room): void {
   if (!room.gameState) return;
   for (const [playerId, ws] of room.sockets) {
@@ -530,11 +599,26 @@ function getAdminRoomsList(): AdminRoomInfo[] {
       isPublic: room.isPublic,
       hasPassword: Boolean(room.password),
       started:
-        room.gameState !== null || room.durakState !== null || room.holdemState !== null,
+        room.gameState !== null ||
+        room.durakState !== null ||
+        room.holdemState !== null ||
+        room.multiBlackjack !== null,
       players: room.players,
     });
   }
   return list;
+}
+
+function sendAdminTelegramWallets(ws: WebSocket): void {
+  void getLeaderboard(200).then((entries) => {
+    const tgEntries = entries
+      .filter((e) => e.playerId.startsWith('tg_'))
+      .map((e) => ({
+        ...e,
+        banned: bannedPlayerIds.has(e.playerId),
+      }));
+    send(ws, { type: 'ADMIN_WALLETS', entries: tgEntries });
+  });
 }
 
 function getAdminOnlinePlayers(): AdminOnlinePlayer[] {
@@ -583,6 +667,7 @@ wss.on('connection', (ws) => {
           gameState: null,
           durakState: null,
           holdemState: null,
+          multiBlackjack: null,
           holdemStartingChips: {},
           botTimer: null,
           turnTimer: null,
@@ -595,9 +680,13 @@ wss.on('connection', (ws) => {
 
       case 'SET_ROOM_GAME': {
         const room = rooms.get(msg.code);
-        if (!room || room.gameState || room.durakState || room.holdemState) return;
+        if (!room || room.gameState || room.durakState || room.holdemState || room.multiBlackjack) return;
         const host = room.players.find((p) => p.id === msg.playerId && p.isHost);
         if (!host) return;
+        if (msg.gameType === 'blackjack' && room.players.length > 4) {
+          send(ws, { type: 'ERROR', message: 'У Блекджек можна грати максимум вчотирьох (зараз >4 гравців).' });
+          return;
+        }
         room.gameType = msg.gameType;
         if (msg.durakMode) room.durakMode = msg.durakMode;
         broadcastRoom(room);
@@ -649,17 +738,27 @@ wss.on('connection', (ws) => {
             };
             broadcastHoldemState(room);
           }
+          if (room.multiBlackjack) {
+            room.multiBlackjack.state = {
+              ...room.multiBlackjack.state,
+              players: room.multiBlackjack.state.players.map((p) =>
+                p.id === msg.playerId ? { ...p, connected: true } : p,
+              ),
+            };
+            broadcastMultiBlackjackState(room);
+          }
           broadcastRoom(room);
           return;
         }
 
-        if (room.durakState || room.holdemState) {
+        if (room.durakState || room.holdemState || room.multiBlackjack) {
           send(ws, { type: 'ERROR', message: 'Партія вже триває — зачекайте наступну.' });
           return;
         }
 
-        if (room.players.length >= 6) {
-          send(ws, { type: 'ERROR', message: 'Кімната вже заповнена (максимум 6 гравців).' });
+        const maxPlayers = getRoomMaxPlayers(room.gameType);
+        if (room.players.length >= maxPlayers) {
+          send(ws, { type: 'ERROR', message: `Кімната вже заповнена (максимум ${maxPlayers} гравців).` });
           return;
         }
 
@@ -705,11 +804,12 @@ wss.on('connection', (ws) => {
 
       case 'ADD_BOT': {
         const room = rooms.get(msg.code);
-        if (!room || room.gameState || room.durakState || room.holdemState) return;
+        if (!room || room.gameState || room.durakState || room.holdemState || room.multiBlackjack) return;
         const host = room.players.find((p) => p.id === msg.playerId && p.isHost);
         if (!host) return;
-        if (room.players.length >= 6) {
-          send(ws, { type: 'ERROR', message: 'Максимум 6 гравців у кімнаті.' });
+        const maxPlayers = getRoomMaxPlayers(room.gameType);
+        if (room.players.length >= maxPlayers) {
+          send(ws, { type: 'ERROR', message: `Максимум ${maxPlayers} гравців у кімнаті.` });
           return;
         }
         const botNum = room.players.filter((p) => p.isBot).length + 1;
@@ -726,7 +826,7 @@ wss.on('connection', (ws) => {
 
       case 'REMOVE_BOT': {
         const room = rooms.get(msg.code);
-        if (!room || room.gameState || room.durakState || room.holdemState) return;
+        if (!room || room.gameState || room.durakState || room.holdemState || room.multiBlackjack) return;
         const host = room.players.find((p) => p.id === msg.playerId && p.isHost);
         if (!host) return;
         room.players = room.players.filter((p) => !(p.id === msg.botId && p.isBot));
@@ -742,11 +842,20 @@ wss.on('connection', (ws) => {
           send(ws, { type: 'ERROR', message: 'Лише хост може почати гру.' });
           return;
         }
-        if (room.players.length < 2) {
-          send(ws, { type: 'ERROR', message: 'Потрібно мінімум 2 гравці.' });
+        const minPlayers = room.gameType === 'blackjack' ? 1 : 2;
+        if (room.players.length < minPlayers) {
+          send(ws, { type: 'ERROR', message: `Потрібно мінімум ${minPlayers} гравці.` });
           return;
         }
-        if (room.gameType === 'durak') {
+        if (room.gameType === 'blackjack') {
+          void createMultiBlackjackSession(room.players).then((session) => {
+            room.multiBlackjack = session;
+            broadcastRoom(room);
+            broadcastMultiBlackjackState(room);
+            void syncMultiBlackjackWallets(room);
+            scheduleMultiBlackjackBotTurnIfNeeded(room);
+          });
+        } else if (room.gameType === 'durak') {
           room.durakState = createDurakMatch(room.players, room.durakMode);
           broadcastRoom(room);
           broadcastDurakState(room);
@@ -817,6 +926,21 @@ wss.on('connection', (ws) => {
         void syncHoldemShowdownChips(room, prev, nextState);
         scheduleHoldemBotTurnIfNeeded(room);
         schedulePublicTurnTimeout(room);
+        break;
+      }
+
+      case 'MULTI_BJ_ACTION': {
+        const room = rooms.get(msg.code);
+        if (!room || !room.multiBlackjack) return;
+        void applyMultiBlackjackAction(room.multiBlackjack, msg.action).then((res) => {
+          if (res.error) {
+            send(ws, { type: 'ERROR', message: res.error });
+            return;
+          }
+          broadcastMultiBlackjackState(room);
+          void syncMultiBlackjackWallets(room);
+          scheduleMultiBlackjackBotTurnIfNeeded(room);
+        });
         break;
       }
 
@@ -1069,9 +1193,7 @@ wss.on('connection', (ws) => {
           players: onlinePlayers,
           config: serverConfig,
         });
-        void getLeaderboard(50).then((entries) => {
-          send(ws, { type: 'ADMIN_WALLETS', entries });
-        });
+        sendAdminTelegramWallets(ws);
         break;
       }
 
@@ -1100,9 +1222,7 @@ wss.on('connection', (ws) => {
             }
           }),
         ).then(() => {
-          void getLeaderboard(50).then((entries) => {
-            send(ws, { type: 'ADMIN_WALLETS', entries });
-          });
+          sendAdminTelegramWallets(ws);
         });
         break;
       }
@@ -1130,6 +1250,7 @@ wss.on('connection', (ws) => {
           players: onlinePlayers,
           config: serverConfig,
         });
+        sendAdminTelegramWallets(ws);
         break;
       }
 
@@ -1290,7 +1411,7 @@ function handleDisconnect(ws: WebSocket, explicitLeave: boolean): void {
 
   room.sockets.delete(meta.playerId);
 
-  const hasGame = Boolean(room.gameState || room.durakState || room.holdemState);
+  const hasGame = Boolean(room.gameState || room.durakState || room.holdemState || room.multiBlackjack);
 
   if (explicitLeave && !hasGame) {
     room.players = room.players.filter((p) => p.id !== meta.playerId);
