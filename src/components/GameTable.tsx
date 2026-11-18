@@ -86,8 +86,12 @@ export const GameTable: React.FC<GameTableProps> = ({
   }, [isSandbox, myPlayerId, state.currentPlayerIndex, state.players]);
 
   const southPlayer = state.players[southIndex];
+  const isEliminatedSpectator = !isSandbox && Boolean(southPlayer?.eliminated);
   const activePlayer = state.players[state.currentPlayerIndex];
-  const isMyTurn = !isWaitingSpectator && state.currentPlayerIndex === southIndex;
+  const isMyTurn =
+    !isWaitingSpectator &&
+    !isEliminatedSpectator &&
+    state.currentPlayerIndex === southIndex;
 
   // Clear selection whenever turn or phase changes
   useEffect(() => {
@@ -224,7 +228,12 @@ export const GameTable: React.FC<GameTableProps> = ({
               )}
               {isSandbox && (
                 <span className="px-1.5 py-0.5 rounded bg-sky-400/20 text-sky-300 text-[10px] font-bold">
-                  ПІСОЧНИЦЯ
+                  НАВЧАННЯ
+                </span>
+              )}
+              {(state.reshuffleCount ?? 0) >= 2 && (
+                <span className="px-1.5 py-0.5 rounded bg-rose-500/30 border border-rose-400/40 text-rose-200 text-[10px] font-extrabold">
+                  {state.reshuffleCount}x очки
                 </span>
               )}
             </div>
@@ -323,7 +332,13 @@ export const GameTable: React.FC<GameTableProps> = ({
                 )}
               </div>
               <div className="text-[10px] text-emerald-200/80 mb-1">
-                {player.score} оч. • {player.hand.length} карт
+                {player.eliminated ? (
+                  <span className="text-rose-300 font-bold">Вибув ({player.score} оч.)</span>
+                ) : (
+                  <>
+                    {player.score} оч. • {player.hand.length} карт
+                  </>
+                )}
               </div>
 
               {/* Opponent cards (face down or open in Sandbox) */}
@@ -465,18 +480,22 @@ export const GameTable: React.FC<GameTableProps> = ({
         </div>
       </div>
 
-      {/* Bottom Area: Spectator Lock OR Action Controls + South Player Hand */}
-      {isWaitingSpectator ? (
+      {/* Bottom Area: Spectator/Eliminated Lock OR Action Controls + South Player Hand */}
+      {isWaitingSpectator || isEliminatedSpectator ? (
         <div className="px-3 pb-4 pt-2 shrink-0">
           <div className="max-w-sm mx-auto rounded-2xl bg-black/55 backdrop-blur-md border border-amber-400/35 p-4 text-center shadow-2xl space-y-2">
             <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-amber-400/15 border border-amber-400/30 text-amber-300 mx-auto">
               <Lock className="w-5 h-5" />
             </div>
             <div className="text-sm font-extrabold text-white">
-              Ви спостерігаєте за раундом {state.round}
+              {isEliminatedSpectator
+                ? `Ви вибули (${southPlayer.score} очок)`
+                : `Ви спостерігаєте за раундом ${state.round}`}
             </div>
             <p className="text-xs text-emerald-200/80">
-              Стіл зараз заблокований до кінця раунду — ви автоматично ввійдете в гру з наступної роздачі.
+              {isEliminatedSpectator
+                ? 'Ви набрали 126+ очок і спостерігаєте за грою решти учасників до завершення матчу.'
+                : 'Стіл зараз заблокований до кінця раунду — ви автоматично ввійдете в гру з наступної роздачі.'}
             </p>
           </div>
         </div>

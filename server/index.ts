@@ -4,9 +4,26 @@ import { extname, join, resolve } from 'path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { applyAction, createMatch, sanitizeStateForPlayer } from '../src/shared/gameEngine';
 import { chooseBotAction } from '../src/shared/botEngine';
+import {
+  applyDurakAction,
+  chooseDurakBotAction,
+  createDurakMatch,
+  sanitizeDurakStateForPlayer,
+} from '../src/shared/durakEngine';
+import {
+  addChips,
+  claimRescueBonus,
+  getLeaderboard,
+  getOrCreateWallet,
+  isAdminPlayer,
+  normalizeTargetPlayerId,
+} from './wallet';
 import type {
   ClientMessage,
+  DurakMode,
+  DurakState,
   GameState,
+  GameType,
   RoomInfo,
   RoomPlayerInfo,
   ServerMessage,
@@ -14,9 +31,12 @@ import type {
 
 interface Room {
   code: string;
+  gameType: GameType;
+  durakMode: DurakMode;
   players: RoomPlayerInfo[];
   sockets: Map<string, WebSocket>;
   gameState: GameState | null;
+  durakState: DurakState | null;
   botTimer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -24,6 +44,7 @@ const BOT_DELAY_MS = 1200;
 
 const rooms = new Map<string, Room>();
 const socketToPlayer = new Map<WebSocket, { code: string; playerId: string }>();
+const socketPlayerIds = new Map<WebSocket, string>();
 
 function generateRoomCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -43,8 +64,10 @@ function send(ws: WebSocket, msg: ServerMessage): void {
 function broadcastRoom(room: Room): void {
   const info: RoomInfo = {
     code: room.code,
+    gameType: room.gameType,
+    durakMode: room.durakMode,
     players: room.players,
-    started: room.gameState !== null,
+    started: room.gameState !== null || room.durakState !== null,
   };
   for (const [, ws] of room.sockets) {
     send(ws, { type: 'ROOM_STATE', room: info });
@@ -74,15 +97,92 @@ function scheduleBotTurnIfNeeded(room: Room): void {
   const active = state.players[state.currentPlayerIndex];
   if (!active?.isBot) return;
 
+    room.botTimer = setTimeout(() => {
+      room.botTimer = null;
+      if (!room.gameState || room.sockets.size === 0) return;
+      const prev = room.gameState;
+      const action = chooseBotAction(prev);
+      if (!action) return;
+      room.gameState = applyAction(prev, action);
+      broadcastGameState(room);
+      void rewardBridgeTransition(room, prev, room.gameState);
+      scheduleBotTurnIfNeeded(room);
+    }, BOT_DELAY_MS);
+}
+
+async function rewardBridgeTransition(
+  room: Room,
+  prevState: GameState | null,
+  nextState: GameState,
+): Promise<void> {
+  if (!prevState) return;
+  const enteredRoundEnd =
+    (prevState.phase !== 'round_over' && nextState.phase === 'round_over') ||
+    (prevState.phase !== 'match_over' && nextState.phase === 'match_over');
+  if (!enteredRoundEnd || !nextState.roundWinnerId) return;
+
+  const winner = nextState.players.find((p) => p.id === nextState.roundWinnerId);
+  if (winner) {
+    const bonus = nextState.roundWinReason === 'bridge' ? 100 : 50;
+    const w = await addChips(winner.id, winner.name, bonus, false);
+    const ws = room.sockets.get(winner.id);
+    if (ws) send(ws, { type: 'WALLET_UPDATE', wallet: w });
+  }
+
+  if (nextState.phase === 'match_over') {
+    const champion = nextState.players.find((p) => !p.eliminated);
+    if (champion) {
+      const w = await addChips(champion.id, champion.name, 200, true);
+      const ws = room.sockets.get(champion.id);
+      if (ws) send(ws, { type: 'WALLET_UPDATE', wallet: w });
+    }
+  }
+}
+
+async function rewardDurakTransition(
+  room: Room,
+  prevState: DurakState | null,
+  nextState: DurakState,
+): Promise<void> {
+  if (!prevState) return;
+  if (prevState.phase !== 'round_over' && nextState.phase === 'round_over') {
+    for (const p of nextState.players) {
+      if (p.id !== nextState.loserId) {
+        const w = await addChips(p.id, p.name, 100, true);
+        const ws = room.sockets.get(p.id);
+        if (ws) send(ws, { type: 'WALLET_UPDATE', wallet: w });
+      }
+    }
+  }
+}
+
+function scheduleDurakBotTurnIfNeeded(room: Room): void {
+  clearBotTimer(room);
+  const state = room.durakState;
+  if (!state || room.sockets.size === 0 || state.phase !== 'playing') return;
+
+  const botAction = chooseDurakBotAction(state);
+  if (!botAction) return;
+
   room.botTimer = setTimeout(() => {
     room.botTimer = null;
-    if (!room.gameState || room.sockets.size === 0) return;
-    const action = chooseBotAction(room.gameState);
-    if (!action) return;
-    room.gameState = applyAction(room.gameState, action);
-    broadcastGameState(room);
-    scheduleBotTurnIfNeeded(room);
+    if (!room.durakState || room.sockets.size === 0) return;
+    const prev = room.durakState;
+    const nextAction = chooseDurakBotAction(prev);
+    if (!nextAction) return;
+    room.durakState = applyDurakAction(prev, nextAction);
+    broadcastDurakState(room);
+    void rewardDurakTransition(room, prev, room.durakState);
+    scheduleDurakBotTurnIfNeeded(room);
   }, BOT_DELAY_MS);
+}
+
+function broadcastDurakState(room: Room): void {
+  if (!room.durakState) return;
+  for (const [playerId, ws] of room.sockets) {
+    const sanitized = sanitizeDurakStateForPlayer(room.durakState, playerId);
+    send(ws, { type: 'DURAK_STATE', state: sanitized });
+  }
 }
 
 function broadcastGameState(room: Room): void {
@@ -160,13 +260,27 @@ wss.on('connection', (ws) => {
         };
         const room: Room = {
           code,
+          gameType: msg.gameType ?? 'bridge',
+          durakMode: msg.durakMode ?? 'podkidnoy',
           players: [player],
           sockets: new Map([[msg.playerId, ws]]),
           gameState: null,
+          durakState: null,
           botTimer: null,
         };
         rooms.set(code, room);
         socketToPlayer.set(ws, { code, playerId: msg.playerId });
+        broadcastRoom(room);
+        break;
+      }
+
+      case 'SET_ROOM_GAME': {
+        const room = rooms.get(msg.code);
+        if (!room || room.gameState || room.durakState) return;
+        const host = room.players.find((p) => p.id === msg.playerId && p.isHost);
+        if (!host) return;
+        room.gameType = msg.gameType;
+        if (msg.durakMode) room.durakMode = msg.durakMode;
         broadcastRoom(room);
         break;
       }
@@ -194,7 +308,21 @@ wss.on('connection', (ws) => {
             };
             broadcastGameState(room);
           }
+          if (room.durakState) {
+            room.durakState = {
+              ...room.durakState,
+              players: room.durakState.players.map((p) =>
+                p.id === msg.playerId ? { ...p, connected: true } : p,
+              ),
+            };
+            broadcastDurakState(room);
+          }
           broadcastRoom(room);
+          return;
+        }
+
+        if (room.durakState) {
+          send(ws, { type: 'ERROR', message: 'Партія в Дурака вже триває — зачекайте наступну.' });
           return;
         }
 
@@ -240,7 +368,7 @@ wss.on('connection', (ws) => {
 
       case 'ADD_BOT': {
         const room = rooms.get(msg.code);
-        if (!room || room.gameState) return;
+        if (!room || room.gameState || room.durakState) return;
         const host = room.players.find((p) => p.id === msg.playerId && p.isHost);
         if (!host) return;
         if (room.players.length >= 6) {
@@ -261,7 +389,7 @@ wss.on('connection', (ws) => {
 
       case 'REMOVE_BOT': {
         const room = rooms.get(msg.code);
-        if (!room || room.gameState) return;
+        if (!room || room.gameState || room.durakState) return;
         const host = room.players.find((p) => p.id === msg.playerId && p.isHost);
         if (!host) return;
         room.players = room.players.filter((p) => !(p.id === msg.botId && p.isBot));
@@ -281,20 +409,98 @@ wss.on('connection', (ws) => {
           send(ws, { type: 'ERROR', message: 'Потрібно мінімум 2 гравці.' });
           return;
         }
-        room.gameState = createMatch(room.players);
-        broadcastRoom(room);
-        broadcastGameState(room);
-        scheduleBotTurnIfNeeded(room);
+        if (room.gameType === 'durak') {
+          room.durakState = createDurakMatch(room.players, room.durakMode);
+          broadcastRoom(room);
+          broadcastDurakState(room);
+          scheduleDurakBotTurnIfNeeded(room);
+        } else {
+          room.gameState = createMatch(room.players);
+          broadcastRoom(room);
+          broadcastGameState(room);
+          scheduleBotTurnIfNeeded(room);
+        }
         break;
       }
 
       case 'GAME_ACTION': {
         const room = rooms.get(msg.code);
         if (!room || !room.gameState) return;
-        const nextState = applyAction(room.gameState, msg.action);
+        const prev = room.gameState;
+        const nextState = applyAction(prev, msg.action);
         room.gameState = nextState;
         broadcastGameState(room);
+        void rewardBridgeTransition(room, prev, nextState);
         scheduleBotTurnIfNeeded(room);
+        break;
+      }
+
+      case 'DURAK_ACTION': {
+        const room = rooms.get(msg.code);
+        if (!room || !room.durakState) return;
+        const prev = room.durakState;
+        const nextState = applyDurakAction(prev, msg.action);
+        room.durakState = nextState;
+        broadcastDurakState(room);
+        void rewardDurakTransition(room, prev, nextState);
+        scheduleDurakBotTurnIfNeeded(room);
+        break;
+      }
+
+      case 'GET_WALLET': {
+        socketPlayerIds.set(ws, msg.playerId);
+        void getOrCreateWallet(msg.playerId, msg.playerName).then((wallet) => {
+          send(ws, {
+            type: 'WALLET_UPDATE',
+            wallet: { ...wallet, isAdmin: isAdminPlayer(msg.playerId) },
+          });
+        });
+        break;
+      }
+
+      case 'CLAIM_BONUS': {
+        void claimRescueBonus(msg.playerId, msg.playerName).then(({ profile }) => {
+          send(ws, {
+            type: 'WALLET_UPDATE',
+            wallet: { ...profile, isAdmin: isAdminPlayer(msg.playerId) },
+          });
+        });
+        break;
+      }
+
+      case 'GET_LEADERBOARD': {
+        void getLeaderboard(10).then((entries) => {
+          send(ws, { type: 'LEADERBOARD', entries });
+        });
+        break;
+      }
+
+      case 'ADMIN_GET_WALLETS': {
+        if (!isAdminPlayer(msg.adminPlayerId)) return;
+        void getLeaderboard(50).then((entries) => {
+          send(ws, { type: 'ADMIN_WALLETS', entries });
+        });
+        break;
+      }
+
+      case 'ADMIN_ADJUST_CHIPS': {
+        if (!isAdminPlayer(msg.adminPlayerId)) return;
+        const targetId = normalizeTargetPlayerId(msg.targetId);
+        if (!targetId || !Number.isFinite(msg.delta)) return;
+        void addChips(targetId, '', Math.trunc(msg.delta), false).then((updated) => {
+          // Push live wallet update to target if they are online
+          for (const [clientWs, pid] of socketPlayerIds.entries()) {
+            if (pid === targetId) {
+              send(clientWs, {
+                type: 'WALLET_UPDATE',
+                wallet: { ...updated, isAdmin: isAdminPlayer(pid) },
+              });
+            }
+          }
+          void getLeaderboard(50).then((entries) => {
+            send(ws, { type: 'ADMIN_WALLETS', entries });
+          });
+        });
         break;
       }
 
@@ -306,6 +512,7 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
+    socketPlayerIds.delete(ws);
     handleDisconnect(ws, false);
   });
 });

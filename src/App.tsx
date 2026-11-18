@@ -1,11 +1,17 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { applyAction, createMatch } from './shared/gameEngine';
+import { applyDurakAction, createDurakMatch } from './shared/durakEngine';
 import type {
   ClientMessage,
+  DurakAction,
+  DurakMode,
+  DurakState,
   GameAction,
   GameState,
+  GameType,
   RoomInfo,
   ServerMessage,
+  WalletSummary,
 } from './shared/types';
 import {
   getOrCreateLocalPlayerId,
@@ -15,6 +21,7 @@ import {
 } from './utils/telegram';
 import { LobbyScreen } from './components/LobbyScreen';
 import { GameTable } from './components/GameTable';
+import { DurakTable } from './components/DurakTable';
 
 function getWsUrl(): string {
   const custom = import.meta.env.VITE_WS_URL as string | undefined;
@@ -36,7 +43,14 @@ export const App: React.FC = () => {
   const [wsConnected, setWsConnected] = useState(false);
   const [room, setRoom] = useState<RoomInfo | null>(null);
   const [onlineState, setOnlineState] = useState<GameState | null>(null);
+  const [onlineDurakState, setOnlineDurakState] = useState<DurakState | null>(null);
   const [sandboxState, setSandboxState] = useState<GameState | null>(null);
+  const [sandboxDurakState, setSandboxDurakState] = useState<DurakState | null>(null);
+  const [selectedGameType, setSelectedGameType] = useState<GameType>('bridge');
+  const [selectedDurakMode, setSelectedDurakMode] = useState<DurakMode>('podkidnoy');
+  const [wallet, setWallet] = useState<WalletSummary | null>(null);
+  const [leaderboard, setLeaderboard] = useState<WalletSummary[]>([]);
+  const [adminWallets, setAdminWallets] = useState<WalletSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -71,6 +85,14 @@ export const App: React.FC = () => {
         setWsConnected(true);
         setError(null);
 
+        ws.send(
+          JSON.stringify({
+            type: 'GET_WALLET',
+            playerId,
+            playerName,
+          } satisfies ClientMessage),
+        );
+
         if (initialRoomCode && !autoJoinedRef.current) {
           autoJoinedRef.current = true;
           ws.send(
@@ -93,6 +115,14 @@ export const App: React.FC = () => {
             setError(null);
           } else if (msg.type === 'GAME_STATE') {
             setOnlineState(msg.state);
+          } else if (msg.type === 'DURAK_STATE') {
+            setOnlineDurakState(msg.state);
+          } else if (msg.type === 'WALLET_UPDATE') {
+            setWallet(msg.wallet);
+          } else if (msg.type === 'LEADERBOARD') {
+            setLeaderboard(msg.entries);
+          } else if (msg.type === 'ADMIN_WALLETS') {
+            setAdminWallets(msg.entries);
           } else if (msg.type === 'ERROR') {
             setError(msg.message);
           }
@@ -123,12 +153,24 @@ export const App: React.FC = () => {
 
   const handleCreateRoom = () => {
     setError(null);
-    sendWs({ type: 'CREATE_ROOM', playerName, playerId, avatarUrl });
+    sendWs({
+      type: 'CREATE_ROOM',
+      playerName,
+      playerId,
+      avatarUrl,
+      gameType: selectedGameType,
+      durakMode: selectedDurakMode,
+    });
   };
 
   const handleJoinRoom = (code: string) => {
     setError(null);
     sendWs({ type: 'JOIN_ROOM', code, playerName, playerId, avatarUrl });
+  };
+
+  const handleSetRoomGame = (gameType: GameType, durakMode: DurakMode) => {
+    if (!room) return;
+    sendWs({ type: 'SET_ROOM_GAME', code: room.code, playerId, gameType, durakMode });
   };
 
   const handleAddBot = () => {
@@ -152,7 +194,9 @@ export const App: React.FC = () => {
     }
     setRoom(null);
     setOnlineState(null);
+    setOnlineDurakState(null);
     setSandboxState(null);
+    setSandboxDurakState(null);
   };
 
   const handleStartSandbox = (count: 2 | 3 | 4 | 5 | 6) => {
@@ -160,7 +204,11 @@ export const App: React.FC = () => {
       id: `sandbox_${idx + 1}`,
       name: idx === 0 ? playerName.trim() || 'Гравець 1' : `Гравець ${idx + 1}`,
     }));
-    setSandboxState(createMatch(players));
+    if (selectedGameType === 'durak') {
+      setSandboxDurakState(createDurakMatch(players, selectedDurakMode));
+    } else {
+      setSandboxState(createMatch(players));
+    }
   };
 
   const handleOnlineAction = (action: GameAction) => {
@@ -168,9 +216,24 @@ export const App: React.FC = () => {
     sendWs({ type: 'GAME_ACTION', code: room.code, action });
   };
 
-  const handleSandboxAction = (action: GameAction) => {
-    setSandboxState((prev) => (prev ? applyAction(prev, action) : null));
+  const handleOnlineDurakAction = (action: DurakAction) => {
+    if (!room) return;
+    sendWs({ type: 'DURAK_ACTION', code: room.code, action });
   };
+
+  if (sandboxDurakState) {
+    return (
+      <DurakTable
+        state={sandboxDurakState}
+        myPlayerId={sandboxDurakState.players[sandboxDurakState.attackerIndex].id}
+        isSandbox
+        onAction={(action) =>
+          setSandboxDurakState((prev) => (prev ? applyDurakAction(prev, action) : null))
+        }
+        onLeave={() => setSandboxDurakState(null)}
+      />
+    );
+  }
 
   if (sandboxState) {
     return (
@@ -178,8 +241,23 @@ export const App: React.FC = () => {
         state={sandboxState}
         myPlayerId={sandboxState.players[sandboxState.currentPlayerIndex].id}
         isSandbox
-        onAction={handleSandboxAction}
+        onAction={(action) =>
+          setSandboxState((prev) => (prev ? applyAction(prev, action) : null))
+        }
         onLeave={() => setSandboxState(null)}
+      />
+    );
+  }
+
+  if (onlineDurakState && room) {
+    return (
+      <DurakTable
+        state={onlineDurakState}
+        myPlayerId={playerId}
+        isSandbox={false}
+        roomCode={room.code}
+        onAction={handleOnlineDurakAction}
+        onLeave={handleLeaveRoom}
       />
     );
   }
@@ -205,6 +283,27 @@ export const App: React.FC = () => {
       connected={wsConnected}
       error={error}
       initialJoinCode={initialRoomCode}
+      wallet={wallet}
+      leaderboard={leaderboard}
+      adminWallets={adminWallets}
+      selectedGameType={selectedGameType}
+      selectedDurakMode={selectedDurakMode}
+      onSelectGameType={setSelectedGameType}
+      onSelectDurakMode={setSelectedDurakMode}
+      onSetRoomGame={handleSetRoomGame}
+      onClaimBonus={() => sendWs({ type: 'CLAIM_BONUS', playerId, playerName })}
+      onFetchLeaderboard={() => sendWs({ type: 'GET_LEADERBOARD' })}
+      onFetchAdminWallets={() =>
+        sendWs({ type: 'ADMIN_GET_WALLETS', adminPlayerId: playerId })
+      }
+      onAdminAdjustChips={(targetId, delta) =>
+        sendWs({
+          type: 'ADMIN_ADJUST_CHIPS',
+          adminPlayerId: playerId,
+          targetId,
+          delta,
+        })
+      }
       onCreateRoom={handleCreateRoom}
       onJoinRoom={handleJoinRoom}
       onAddBot={handleAddBot}

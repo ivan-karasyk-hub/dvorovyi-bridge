@@ -1,6 +1,22 @@
 import React, { useState } from 'react';
-import { Users, Play, Copy, Check, Eye, Plus, LogIn, Wifi, WifiOff, Bot, X, Send } from 'lucide-react';
-import type { RoomInfo } from '../shared/types';
+import {
+  Users,
+  Play,
+  Copy,
+  Check,
+  Eye,
+  Plus,
+  LogIn,
+  Wifi,
+  WifiOff,
+  Bot,
+  X,
+  Send,
+  Coins,
+  Trophy,
+  ShieldAlert,
+} from 'lucide-react';
+import type { DurakMode, GameType, RoomInfo, WalletSummary } from '../shared/types';
 import { copyTextToClipboard, getRoomInviteUrl, shareRoomInTelegram } from '../utils/telegram';
 
 interface LobbyScreenProps {
@@ -10,6 +26,18 @@ interface LobbyScreenProps {
   connected: boolean;
   error: string | null;
   initialJoinCode?: string | null;
+  wallet: WalletSummary | null;
+  leaderboard: WalletSummary[];
+  adminWallets: WalletSummary[];
+  selectedGameType: GameType;
+  selectedDurakMode: DurakMode;
+  onSelectGameType: (gameType: GameType) => void;
+  onSelectDurakMode: (mode: DurakMode) => void;
+  onSetRoomGame: (gameType: GameType, durakMode: DurakMode) => void;
+  onClaimBonus: () => void;
+  onFetchLeaderboard: () => void;
+  onFetchAdminWallets: () => void;
+  onAdminAdjustChips: (targetId: string, delta: number) => void;
   onCreateRoom: () => void;
   onJoinRoom: (code: string) => void;
   onAddBot: () => void;
@@ -27,6 +55,18 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   connected,
   error,
   initialJoinCode,
+  wallet,
+  leaderboard,
+  adminWallets,
+  selectedGameType,
+  selectedDurakMode,
+  onSelectGameType,
+  onSelectDurakMode,
+  onSetRoomGame,
+  onClaimBonus,
+  onFetchLeaderboard,
+  onFetchAdminWallets,
+  onAdminAdjustChips,
   onCreateRoom,
   onJoinRoom,
   onAddBot,
@@ -39,6 +79,10 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   const [joinCode, setJoinCode] = useState(initialJoinCode ?? '');
   const [sandboxCount, setSandboxCount] = useState<2 | 3 | 4 | 5 | 6>(2);
   const [copied, setCopied] = useState(false);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [adminTargetId, setAdminTargetId] = useState('');
+  const [adminDelta, setAdminDelta] = useState('1000');
 
   const handleCopyInvite = async () => {
     if (!room) return;
@@ -89,6 +133,74 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
           </div>
 
           <div className="space-y-2">
+            {/* Game mode inside room */}
+            <div className="rounded-xl bg-white/5 border border-white/10 p-2.5 space-y-2">
+              <div className="flex items-center justify-between text-[11px] text-emerald-200/80">
+                <span>Гра:</span>
+                {isHost ? (
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      onClick={() => onSetRoomGame('bridge', room.durakMode)}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition ${
+                        room.gameType === 'bridge'
+                          ? 'bg-amber-400 text-slate-950'
+                          : 'bg-white/10 text-white/75'
+                      }`}
+                    >
+                      Брідж
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onSetRoomGame('durak', room.durakMode)}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition ${
+                        room.gameType === 'durak'
+                          ? 'bg-amber-400 text-slate-950'
+                          : 'bg-white/10 text-white/75'
+                      }`}
+                    >
+                      Дурак
+                    </button>
+                  </div>
+                ) : (
+                  <span className="font-bold text-amber-300">
+                    {room.gameType === 'durak'
+                      ? `Дурак (${room.durakMode === 'perevodnoy' ? 'Перевідний' : 'Підкидний'})`
+                      : 'Карасьовий Брідж'}
+                  </span>
+                )}
+              </div>
+              {isHost && room.gameType === 'durak' && (
+                <div className="flex items-center justify-between text-[11px] text-emerald-200/80">
+                  <span>Режим Дурака:</span>
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      onClick={() => onSetRoomGame('durak', 'podkidnoy')}
+                      className={`px-2 py-0.5 rounded-md font-semibold ${
+                        room.durakMode === 'podkidnoy'
+                          ? 'bg-emerald-400 text-slate-950'
+                          : 'bg-white/10 text-white/75'
+                      }`}
+                    >
+                      Підкидний
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onSetRoomGame('durak', 'perevodnoy')}
+                      className={`px-2 py-0.5 rounded-md font-semibold ${
+                        room.durakMode === 'perevodnoy'
+                          ? 'bg-emerald-400 text-slate-950'
+                          : 'bg-white/10 text-white/75'
+                      }`}
+                    >
+                      Перевідний
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="text-xs text-emerald-200/80 flex items-center justify-between">
               <span className="flex items-center gap-1.5">
                 <Users className="w-3.5 h-3.5" />
@@ -183,19 +295,121 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
       <div className="w-full max-w-sm space-y-4">
         {/* Header */}
         <div className="text-center space-y-1">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/30 border border-white/10 text-[11px] text-emerald-200">
-            {connected ? (
-              <>
-                <Wifi className="w-3.5 h-3.5 text-emerald-400" /> Сервер онлайн
-              </>
-            ) : (
-              <>
-                <WifiOff className="w-3.5 h-3.5 text-amber-400" /> Офлайн (доступна Пісочниця)
-              </>
+          <div className="flex items-center justify-center gap-2">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/30 border border-white/10 text-[11px] text-emerald-200">
+              {connected ? (
+                <>
+                  <Wifi className="w-3.5 h-3.5 text-emerald-400" /> Онлайн
+                </>
+              ) : (
+                <>
+                  <WifiOff className="w-3.5 h-3.5 text-amber-400" /> Офлайн
+                </>
+              )}
+            </div>
+            {wallet && (
+              <div className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-amber-400/15 border border-amber-400/35 text-[11px] font-extrabold text-amber-300">
+                <Coins className="w-3.5 h-3.5" />
+                {wallet.chips}
+              </div>
+            )}
+            {connected && (
+              <button
+                type="button"
+                onClick={() => {
+                  onFetchLeaderboard();
+                  setShowLeaderboard(true);
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/10 hover:bg-white/20 text-[11px] font-bold text-white"
+              >
+                <Trophy className="w-3 h-3 text-amber-300" />
+                Топ
+              </button>
+            )}
+            {connected && wallet?.isAdmin && (
+              <button
+                type="button"
+                onClick={() => {
+                  onFetchAdminWallets();
+                  setShowAdmin(true);
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-500/25 hover:bg-rose-500/40 border border-rose-400/40 text-[11px] font-bold text-rose-200"
+              >
+                <ShieldAlert className="w-3 h-3" />
+                Адмін
+              </button>
             )}
           </div>
+          {wallet && wallet.chips < 100 && (
+            <div>
+              <button
+                type="button"
+                onClick={onClaimBonus}
+                className="text-[11px] font-bold text-emerald-300 underline"
+              >
+                Отримати бонус +200 фішок
+              </button>
+            </div>
+          )}
           <h1 className="text-3xl font-black tracking-tight text-white">Карасьовий Брідж</h1>
-          <p className="text-xs text-emerald-200/75">Гра до 125 очок • 2–6 гравців</p>
+          <p className="text-xs text-emerald-200/75">
+            {selectedGameType === 'durak'
+              ? `Дурак (${selectedDurakMode === 'perevodnoy' ? 'Перевідний' : 'Підкидний'}) • 2–6 гравців`
+              : 'Гра до 125 очок • 2–6 гравців'}
+          </p>
+          <div className="flex items-center justify-center gap-1.5 pt-1">
+            <button
+              type="button"
+              onClick={() => onSelectGameType('bridge')}
+              className={`px-3 py-1 rounded-full text-[11px] font-extrabold transition ${
+                selectedGameType === 'bridge'
+                  ? 'bg-amber-400 text-slate-950'
+                  : 'bg-white/10 text-white/75 hover:bg-white/20'
+              }`}
+            >
+              Брідж
+            </button>
+            <button
+              type="button"
+              onClick={() => onSelectGameType('durak')}
+              className={`px-3 py-1 rounded-full text-[11px] font-extrabold transition ${
+                selectedGameType === 'durak'
+                  ? 'bg-amber-400 text-slate-950'
+                  : 'bg-white/10 text-white/75 hover:bg-white/20'
+              }`}
+            >
+              Дурак
+            </button>
+            <span className="px-2.5 py-1 rounded-full bg-white/10 text-white/45 text-[11px] font-semibold">
+              Холдем • скоро
+            </span>
+          </div>
+          {selectedGameType === 'durak' && (
+            <div className="flex items-center justify-center gap-1.5 pt-1">
+              <button
+                type="button"
+                onClick={() => onSelectDurakMode('podkidnoy')}
+                className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold ${
+                  selectedDurakMode === 'podkidnoy'
+                    ? 'bg-emerald-400 text-slate-950'
+                    : 'bg-white/10 text-white/70'
+                }`}
+              >
+                Підкидний
+              </button>
+              <button
+                type="button"
+                onClick={() => onSelectDurakMode('perevodnoy')}
+                className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold ${
+                  selectedDurakMode === 'perevodnoy'
+                    ? 'bg-emerald-400 text-slate-950'
+                    : 'bg-white/10 text-white/70'
+                }`}
+              >
+                Перевідний
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Player Name */}
@@ -260,7 +474,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
           <div className="flex items-center justify-between">
             <div className="text-sm font-bold text-white flex items-center gap-2">
               <Eye className="w-4 h-4 text-sky-400" />
-              Пісочниця (тест правил)
+              Навчання (тест правил)
             </div>
             <div className="flex gap-1">
               {([2, 3, 4, 5, 6] as const).map((cnt) => (
@@ -280,17 +494,148 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             </div>
           </div>
           <p className="text-[11px] text-emerald-200/70">
-            Локальний стіл на 2–6 гравців з відкритими картами для перевірки всіх правил і комбінацій.
+            Локальний стіл на 2–6 гравців з відкритими картами для навчання та перевірки правил.
           </p>
           <button
             type="button"
             onClick={() => onStartSandbox(sandboxCount)}
             className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-white font-semibold text-sm active:scale-95 transition"
           >
-            Запустити Пісочницю ({sandboxCount} гравці)
+            Запустити Навчання ({sandboxCount} гравці)
           </button>
         </div>
       </div>
+
+      {/* Leaderboard Modal */}
+      {showLeaderboard && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-sm rounded-3xl bg-[#0b2919] border border-amber-400/35 p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Trophy className="w-5 h-5 text-amber-400" />
+                <h3 className="font-bold text-white">Топ гравців (Фішки)</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowLeaderboard(false)}
+                className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-1.5 max-h-64 overflow-y-auto">
+              {leaderboard.length === 0 ? (
+                <p className="text-xs text-center text-emerald-200/70 py-4">
+                  Поки що немає записів
+                </p>
+              ) : (
+                leaderboard.map((entry, idx) => (
+                  <div
+                    key={entry.playerId}
+                    className="flex items-center justify-between px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-extrabold text-amber-300 w-5">#{idx + 1}</span>
+                      <span className="font-semibold text-white truncate">{entry.name}</span>
+                    </div>
+                    <div className="flex items-center gap-1 font-extrabold text-amber-300 shrink-0">
+                      <Coins className="w-3.5 h-3.5" />
+                      {entry.chips}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Modal */}
+      {showAdmin && wallet?.isAdmin && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-sm rounded-3xl bg-[#0b2919] border border-rose-400/40 p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="w-5 h-5 text-rose-400" />
+                <h3 className="font-bold text-white">Адмін-панель фішок</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAdmin(false)}
+                className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-[11px] text-emerald-200/80">
+                Telegram ID (наприклад `123456789` або `tg_123456789`):
+              </label>
+              <input
+                type="text"
+                value={adminTargetId}
+                onChange={(e) => setAdminTargetId(e.target.value)}
+                placeholder="Введіть TG ID..."
+                className="w-full px-3 py-2 rounded-xl bg-white/10 border border-white/15 text-xs text-white placeholder-white/40 focus:outline-none focus:border-rose-400"
+              />
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  value={adminDelta}
+                  onChange={(e) => setAdminDelta(e.target.value)}
+                  placeholder="Сума"
+                  className="w-28 px-3 py-2 rounded-xl bg-white/10 border border-white/15 text-xs text-white focus:outline-none focus:border-rose-400"
+                />
+                <button
+                  type="button"
+                  disabled={!adminTargetId.trim() || !Number.isFinite(Number(adminDelta))}
+                  onClick={() => {
+                    onAdminAdjustChips(adminTargetId.trim(), Number(adminDelta));
+                  }}
+                  className="flex-1 py-2 rounded-xl bg-rose-500 hover:bg-rose-400 disabled:opacity-40 text-white font-bold text-xs active:scale-95 transition"
+                >
+                  Нарахувати
+                </button>
+              </div>
+              <div className="flex gap-1.5">
+                {[500, 1000, 5000, -500].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setAdminDelta(String(preset))}
+                    className="flex-1 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] font-bold text-white/85"
+                  >
+                    {preset > 0 ? `+${preset}` : preset}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-1.5 max-h-48 overflow-y-auto pt-1 border-t border-white/10">
+              <div className="text-[10px] text-emerald-200/70">
+                Гравці (натисни, щоб обрати):
+              </div>
+              {adminWallets.map((w) => (
+                <button
+                  key={w.playerId}
+                  type="button"
+                  onClick={() => setAdminTargetId(w.playerId)}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs"
+                >
+                  <div className="min-w-0">
+                    <div className="font-semibold text-white truncate">{w.name}</div>
+                    <div className="text-[10px] text-white/50 truncate">{w.playerId}</div>
+                  </div>
+                  <div className="font-extrabold text-amber-300 shrink-0 ml-2">
+                    {w.chips}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -91,6 +91,26 @@ export function calculateHandPoints(hand: Card[]): number {
   return hand.reduce((sum, card) => sum + getCardPoints(card), 0);
 }
 
+export function advanceActivePlayer(
+  players: Player[],
+  fromIndex: number,
+  steps = 1,
+): number {
+  const n = players.length;
+  if (n === 0) return 0;
+  let idx = fromIndex;
+  let remaining = steps;
+  let guard = 0;
+  while (remaining > 0 && guard < n * (steps + 2)) {
+    idx = (idx + 1) % n;
+    guard++;
+    if (!players[idx]?.eliminated) {
+      remaining--;
+    }
+  }
+  return idx;
+}
+
 /**
  * Draws `count` cards from `deck`. If `deck` runs out and `discardPile` has
  * more than 1 card, reshuffles `discardPile` (except its top card) into `deck`.
@@ -100,11 +120,11 @@ export function drawFromDeck(
   discardPile: Card[],
   count: number,
   rng: () => number = Math.random,
-): { drawn: Card[]; deck: Card[]; discardPile: Card[]; reshuffled: boolean } {
+): { drawn: Card[]; deck: Card[]; discardPile: Card[]; reshuffled: boolean; reshuffles: number } {
   let currentDeck = [...deck];
   let currentDiscard = [...discardPile];
   const drawn: Card[] = [];
-  let reshuffled = false;
+  let reshuffles = 0;
 
   for (let i = 0; i < count; i++) {
     if (currentDeck.length === 0) {
@@ -115,7 +135,7 @@ export function drawFromDeck(
       const toShuffle = currentDiscard.slice(0, -1);
       currentDeck = shuffleDeck(toShuffle, rng);
       currentDiscard = [topCard];
-      reshuffled = true;
+      reshuffles += 1;
     }
     const nextCard = currentDeck.pop();
     if (nextCard) {
@@ -123,7 +143,13 @@ export function drawFromDeck(
     }
   }
 
-  return { drawn, deck: currentDeck, discardPile: currentDiscard, reshuffled };
+  return {
+    drawn,
+    deck: currentDeck,
+    discardPile: currentDiscard,
+    reshuffled: reshuffles > 0,
+    reshuffles,
+  };
 }
 
 export function checkBridgeOnTop(discardPile: Card[]): boolean {
@@ -223,6 +249,8 @@ function finalizeRound(
   const deltas: Record<string, number> = {};
   const totals: Record<string, number> = {};
   const resetToZeroPlayerIds: string[] = [];
+  const newlyEliminatedIds: string[] = [];
+  const multiplier = Math.max(1, state.reshuffleCount ?? 0);
 
   const endedWithJack =
     winReason === 'empty_hand' &&
@@ -230,19 +258,31 @@ function finalizeRound(
     lastPlayedCards[lastPlayedCards.length - 1].rank === 'J';
 
   const updatedPlayers = state.players.map((p) => {
+    if (p.eliminated) {
+      deltas[p.id] = 0;
+      totals[p.id] = p.score;
+      return p;
+    }
+
     let delta = 0;
     if (p.id === winnerId) {
       if (endedWithJack) {
         delta = -20 * lastPlayedCards.length;
       }
     } else {
-      delta = calculateHandPoints(p.hand);
+      delta = calculateHandPoints(p.hand) * multiplier;
     }
 
-    let newScore = p.score + delta;
+    // Minimum score is 0 (Jack subtraction cannot go below 0)
+    let newScore = Math.max(0, p.score + delta);
     if (newScore === 125) {
       newScore = 0;
       resetToZeroPlayerIds.push(p.id);
+    }
+
+    const eliminated = newScore >= 126;
+    if (eliminated) {
+      newlyEliminatedIds.push(p.id);
     }
 
     deltas[p.id] = delta;
@@ -251,19 +291,23 @@ function finalizeRound(
     return {
       ...p,
       score: newScore,
+      eliminated,
     };
   });
 
-  const anyLoser = updatedPlayers.some((p) => p.score >= 126);
+  const alivePlayers = updatedPlayers.filter((p) => !p.eliminated);
+  const isMatchOver = alivePlayers.length <= 1;
 
   const entry: RoundScoreEntry = {
     round: state.round,
     winnerId,
     winnerName: winner.name,
     winReason,
+    reshuffleMultiplier: multiplier,
     deltas,
     totals,
     resetToZeroPlayerIds,
+    eliminatedPlayerIds: newlyEliminatedIds,
   };
 
   const logs = [...extraLogs];
@@ -272,10 +316,13 @@ function finalizeRound(
   } else {
     logs.push(makeLog(`${winner.name} виграв раунд ${state.round}!`, 'special'));
   }
+  if (multiplier > 1) {
+    logs.push(makeLog(`Множник перетасовок: ${multiplier}x до очок!`, 'special'));
+  }
   if (endedWithJack) {
     logs.push(
       makeLog(
-        `Закінчення Валетом: ${winner.name} отримує ${-20 * lastPlayedCards.length} очок!`,
+        `Закінчення Валетом: ${winner.name} (${-20 * lastPlayedCards.length}, мін. 0).`,
         'special',
       ),
     );
@@ -286,14 +333,28 @@ function finalizeRound(
       logs.push(makeLog(`${rp.name} набрав рівно 125 — рахунок обнулено до 0!`, 'special'));
     }
   }
-  if (anyLoser) {
-    logs.push(makeLog('Гру завершено! Хтось набрав 126+ очок.', 'warning'));
+  for (const elimId of newlyEliminatedIds) {
+    const ep = updatedPlayers.find((p) => p.id === elimId);
+    if (ep) {
+      logs.push(makeLog(`${ep.name} вибуває (${ep.score} очок)!`, 'warning'));
+    }
+  }
+  if (isMatchOver) {
+    const champion = alivePlayers[0];
+    logs.push(
+      makeLog(
+        champion
+          ? `Гру завершено! Переможець матчу: ${champion.name}!`
+          : 'Гру завершено! Усі набрали 126+ очок.',
+        'bridge',
+      ),
+    );
   }
 
   return {
     ...state,
     players: updatedPlayers,
-    phase: anyLoser ? 'match_over' : 'round_over',
+    phase: isMatchOver ? 'match_over' : 'round_over',
     roundWinnerId: winnerId,
     roundWinReason: winReason,
     hasDrawnThisTurn: false,
@@ -309,7 +370,6 @@ function applyOpeningCardEffect(
   firstPlayerIndex: number,
   rng: () => number,
 ): GameState {
-  const numPlayers = state.players.length;
   const firstPlayer = state.players[firstPlayerIndex];
   const logs: GameLogEntry[] = [
     makeLog(`Раунд ${state.round}. Стартова карта: ${formatCard(openingCard)}`),
@@ -317,6 +377,7 @@ function applyOpeningCardEffect(
 
   let deck = state.deck;
   let discardPile = state.discardPile;
+  let reshuffleCount = state.reshuffleCount ?? 0;
   const players = state.players.map((p) => ({ ...p, hand: [...p.hand] }));
 
   if (openingCard.rank === '6') {
@@ -338,8 +399,9 @@ function applyOpeningCardEffect(
     const res = drawFromDeck(deck, discardPile, 2, rng);
     deck = res.deck;
     discardPile = res.discardPile;
+    reshuffleCount += res.reshuffles;
     players[firstPlayerIndex].hand.push(...res.drawn);
-    const nextIdx = (firstPlayerIndex + 1) % numPlayers;
+    const nextIdx = advanceActivePlayer(players, firstPlayerIndex, 1);
     logs.push(
       makeLog(
         `Стартова 7: ${firstPlayer.name} бере ${res.drawn.length} карти і пропускає хід.`,
@@ -351,6 +413,7 @@ function applyOpeningCardEffect(
       players,
       deck,
       discardPile,
+      reshuffleCount,
       currentPlayerIndex: nextIdx,
       logs: appendLogs(state.logs, ...logs),
     };
@@ -360,6 +423,7 @@ function applyOpeningCardEffect(
     const res = drawFromDeck(deck, discardPile, 1, rng);
     deck = res.deck;
     discardPile = res.discardPile;
+    reshuffleCount += res.reshuffles;
     players[firstPlayerIndex].hand.push(...res.drawn);
     logs.push(
       makeLog(
@@ -372,6 +436,7 @@ function applyOpeningCardEffect(
       players,
       deck,
       discardPile,
+      reshuffleCount,
       currentPlayerIndex: firstPlayerIndex,
       logs: appendLogs(state.logs, ...logs),
     };
@@ -381,8 +446,9 @@ function applyOpeningCardEffect(
     const res = drawFromDeck(deck, discardPile, 4, rng);
     deck = res.deck;
     discardPile = res.discardPile;
+    reshuffleCount += res.reshuffles;
     players[firstPlayerIndex].hand.push(...res.drawn);
-    const nextIdx = (firstPlayerIndex + 1) % numPlayers;
+    const nextIdx = advanceActivePlayer(players, firstPlayerIndex, 1);
     logs.push(
       makeLog(
         `Стартовий K♠! ${firstPlayer.name} бере ${res.drawn.length} карти і пропускає хід.`,
@@ -394,13 +460,14 @@ function applyOpeningCardEffect(
       players,
       deck,
       discardPile,
+      reshuffleCount,
       currentPlayerIndex: nextIdx,
       logs: appendLogs(state.logs, ...logs),
     };
   }
 
   if (openingCard.rank === 'A') {
-    const nextIdx = (firstPlayerIndex + 1) % numPlayers;
+    const nextIdx = advanceActivePlayer(players, firstPlayerIndex, 1);
     logs.push(
       makeLog(`Стартовий Туз: ${firstPlayer.name} пропускає хід.`, 'special'),
     );
@@ -478,12 +545,16 @@ export function dealRound(
   rng: () => number = Math.random,
 ): GameState {
   const deck = shuffleDeck(createDeck(), rng);
-  const numPlayers = prevState.players.length;
   const players: Player[] = prevState.players.map((p) => ({ ...p, hand: [] }));
 
-  // Non-dealers get 5 cards; dealer gets 4 cards + 5th card goes face-up
-  for (let i = 0; i < numPlayers; i++) {
-    const count = i === dealerIndex ? 4 : 5;
+  const activeDealerIndex = players[dealerIndex]?.eliminated
+    ? advanceActivePlayer(players, dealerIndex, 1)
+    : dealerIndex;
+
+  // Non-dealers get 5 cards; dealer gets 4 cards + 5th card goes face-up; eliminated players get 0
+  for (let i = 0; i < players.length; i++) {
+    if (players[i].eliminated) continue;
+    const count = i === activeDealerIndex ? 4 : 5;
     for (let c = 0; c < count; c++) {
       const card = deck.pop();
       if (card) players[i].hand.push(card);
@@ -491,16 +562,17 @@ export function dealRound(
   }
 
   const openingCard = deck.pop()!;
-  const firstPlayerIndex = (dealerIndex + 1) % numPlayers;
+  const firstPlayerIndex = advanceActivePlayer(players, activeDealerIndex, 1);
 
   const baseState: GameState = {
     ...prevState,
     round: prevState.round + 1,
     players,
-    dealerIndex,
+    dealerIndex: activeDealerIndex,
     currentPlayerIndex: firstPlayerIndex,
     deck,
     discardPile: [openingCard],
+    reshuffleCount: 0,
     activeSuit: openingCard.suit,
     orderedSuit: null,
     phase: 'playing',
@@ -525,7 +597,7 @@ function resolveSpecialEffects(
   const players = updatedState.players.map((p) => ({ ...p, hand: [...p.hand] }));
   let deck = [...updatedState.deck];
   let discardPile = [...updatedState.discardPile];
-  const numPlayers = players.length;
+  let reshuffleCount = updatedState.reshuffleCount ?? 0;
 
   // Check empty hand win
   if (players[updatedState.currentPlayerIndex].hand.length === 0) {
@@ -555,12 +627,13 @@ function resolveSpecialEffects(
   }
 
   if (lastCard.rank === '7') {
-    const victimIdx = (updatedState.currentPlayerIndex + 1) % numPlayers;
+    const victimIdx = advanceActivePlayer(players, updatedState.currentPlayerIndex, 1);
     const res = drawFromDeck(deck, discardPile, 2, rng);
     deck = res.deck;
     discardPile = res.discardPile;
+    reshuffleCount += res.reshuffles;
     players[victimIdx].hand.push(...res.drawn);
-    const nextIdx = (updatedState.currentPlayerIndex + 2) % numPlayers;
+    const nextIdx = advanceActivePlayer(players, updatedState.currentPlayerIndex, 2);
     logs.push(
       makeLog(
         `${players[victimIdx].name} бере ${res.drawn.length} карти і пропускає хід.`,
@@ -572,6 +645,7 @@ function resolveSpecialEffects(
       players,
       deck,
       discardPile,
+      reshuffleCount,
       phase: 'playing',
       currentPlayerIndex: nextIdx,
       logs: appendLogs(updatedState.logs, ...logs),
@@ -579,10 +653,11 @@ function resolveSpecialEffects(
   }
 
   if (lastCard.rank === '8') {
-    const nextIdx = (updatedState.currentPlayerIndex + 1) % numPlayers;
+    const nextIdx = advanceActivePlayer(players, updatedState.currentPlayerIndex, 1);
     const res = drawFromDeck(deck, discardPile, 1, rng);
     deck = res.deck;
     discardPile = res.discardPile;
+    reshuffleCount += res.reshuffles;
     players[nextIdx].hand.push(...res.drawn);
     logs.push(makeLog(`${players[nextIdx].name} бере 1 карту і ходить.`, 'special'));
     return {
@@ -590,6 +665,7 @@ function resolveSpecialEffects(
       players,
       deck,
       discardPile,
+      reshuffleCount,
       phase: 'playing',
       currentPlayerIndex: nextIdx,
       logs: appendLogs(updatedState.logs, ...logs),
@@ -597,12 +673,13 @@ function resolveSpecialEffects(
   }
 
   if (lastCard.rank === 'K' && lastCard.suit === 'spades') {
-    const victimIdx = (updatedState.currentPlayerIndex + 1) % numPlayers;
+    const victimIdx = advanceActivePlayer(players, updatedState.currentPlayerIndex, 1);
     const res = drawFromDeck(deck, discardPile, 4, rng);
     deck = res.deck;
     discardPile = res.discardPile;
+    reshuffleCount += res.reshuffles;
     players[victimIdx].hand.push(...res.drawn);
-    const nextIdx = (updatedState.currentPlayerIndex + 2) % numPlayers;
+    const nextIdx = advanceActivePlayer(players, updatedState.currentPlayerIndex, 2);
     logs.push(
       makeLog(
         `Король пік! ${players[victimIdx].name} бере ${res.drawn.length} карти і пропускає хід.`,
@@ -614,6 +691,7 @@ function resolveSpecialEffects(
       players,
       deck,
       discardPile,
+      reshuffleCount,
       phase: 'playing',
       currentPlayerIndex: nextIdx,
       logs: appendLogs(updatedState.logs, ...logs),
@@ -622,10 +700,11 @@ function resolveSpecialEffects(
 
   if (lastCard.rank === 'A') {
     const skips = playedCards.length;
-    const nextIdx = (updatedState.currentPlayerIndex + 1 + skips) % numPlayers;
+    const nextIdx = advanceActivePlayer(players, updatedState.currentPlayerIndex, 1 + skips);
     const skippedNames: string[] = [];
     for (let s = 1; s <= skips; s++) {
-      skippedNames.push(players[(updatedState.currentPlayerIndex + s) % numPlayers].name);
+      const skippedIdx = advanceActivePlayer(players, updatedState.currentPlayerIndex, s);
+      skippedNames.push(players[skippedIdx].name);
     }
     logs.push(makeLog(`Туз! Пропускають: ${skippedNames.join(', ')}.`, 'special'));
     return {
@@ -636,7 +715,7 @@ function resolveSpecialEffects(
     };
   }
 
-  const nextIdx = (updatedState.currentPlayerIndex + 1) % numPlayers;
+  const nextIdx = advanceActivePlayer(players, updatedState.currentPlayerIndex, 1);
   return {
     ...updatedState,
     phase: 'playing',
@@ -768,7 +847,7 @@ export function applyAction(
 
     case 'CHOOSE_SUIT': {
       if (state.phase !== 'choosing_suit') return state;
-      const nextIdx = (state.currentPlayerIndex + 1) % state.players.length;
+      const nextIdx = advanceActivePlayer(state.players, state.currentPlayerIndex, 1);
       const log = makeLog(`Замовлено масть: ${SUIT_NAMES_UK[action.suit]}`, 'special');
       return {
         ...state,
@@ -789,6 +868,7 @@ export function applyAction(
       }
 
       const res = drawFromDeck(state.deck, state.discardPile, 1, rng);
+      const reshuffleCount = (state.reshuffleCount ?? 0) + res.reshuffles;
       const players = state.players.map((p, idx) =>
         idx === state.currentPlayerIndex
           ? { ...p, hand: [...p.hand, ...res.drawn] }
@@ -797,7 +877,7 @@ export function applyAction(
 
       // Edge case: both deck and discard (except top) are completely empty
       if (res.drawn.length === 0) {
-        const nextIdx = (state.currentPlayerIndex + 1) % players.length;
+        const nextIdx = advanceActivePlayer(players, state.currentPlayerIndex, 1);
         const log = makeLog(
           `Колода порожня! ${activePlayer.name} пропускає хід.`,
           'warning',
@@ -807,6 +887,7 @@ export function applyAction(
           players,
           deck: res.deck,
           discardPile: res.discardPile,
+          reshuffleCount,
           phase: 'playing',
           hasDrawnThisTurn: false,
           drawnCardId: null,
@@ -818,7 +899,12 @@ export function applyAction(
       const drawnCard = res.drawn[0];
       const logs: GameLogEntry[] = [];
       if (res.reshuffled) {
-        logs.push(makeLog('Колоду перетасовано зі стосу скидання.'));
+        logs.push(
+          makeLog(
+            `Колоду перетасовано (${reshuffleCount}x множник очок)!`,
+            'special',
+          ),
+        );
       }
 
       if (state.phase === 'must_cover_six') {
@@ -828,6 +914,7 @@ export function applyAction(
           players,
           deck: res.deck,
           discardPile: res.discardPile,
+          reshuffleCount,
           drawnCardId: drawnCard.id,
           logs: appendLogs(state.logs, ...logs),
         };
@@ -839,6 +926,7 @@ export function applyAction(
         players,
         deck: res.deck,
         discardPile: res.discardPile,
+        reshuffleCount,
         hasDrawnThisTurn: true,
         drawnCardId: drawnCard.id,
       };
@@ -858,7 +946,7 @@ export function applyAction(
       // Drawn card does not fit -> check if player has any other playable card; if not, pass turn
       const hasAny = canPlayerMakeAnyPlay(players[state.currentPlayerIndex], nextState);
       if (!hasAny) {
-        const nextIdx = (state.currentPlayerIndex + 1) % players.length;
+        const nextIdx = advanceActivePlayer(players, state.currentPlayerIndex, 1);
         logs.push(makeLog(`${activePlayer.name} взяв карту і пасує.`));
         return {
           ...nextState,
@@ -880,7 +968,7 @@ export function applyAction(
       if (state.phase !== 'playing' || !state.hasDrawnThisTurn) {
         return state;
       }
-      const nextIdx = (state.currentPlayerIndex + 1) % state.players.length;
+      const nextIdx = advanceActivePlayer(state.players, state.currentPlayerIndex, 1);
       const log = makeLog(`${activePlayer.name} натиснув Пас.`);
       return {
         ...state,

@@ -14,6 +14,7 @@ export interface Player {
   hand: Card[];
   score: number;
   connected: boolean;
+  eliminated?: boolean;
   isHost?: boolean;
   isBot?: boolean;
   avatarUrl?: string;
@@ -24,11 +25,13 @@ export interface RoundScoreEntry {
   winnerId: string;
   winnerName: string;
   winReason: 'empty_hand' | 'bridge';
+  reshuffleMultiplier?: number;
   /** Points added (or subtracted for Jack finish) per playerId in this round */
   deltas: Record<string, number>;
-  /** Total scores after this round (with 125->0 reset applied) */
+  /** Total scores after this round (with 125->0 reset and >=0 floor applied) */
   totals: Record<string, number>;
   resetToZeroPlayerIds: string[];
+  eliminatedPlayerIds?: string[];
 }
 
 export type TurnPhase =
@@ -60,6 +63,7 @@ export interface GameState {
   currentPlayerIndex: number;
   deck: Card[];
   discardPile: Card[];
+  reshuffleCount?: number;
   activeSuit: Suit;
   orderedSuit: Suit | null;
   phase: TurnPhase;
@@ -83,6 +87,57 @@ export type GameAction =
   | { type: 'START_NEXT_ROUND'; playerId: string }
   | { type: 'REMATCH'; playerId: string };
 
+export type GameType = 'bridge' | 'durak';
+export type DurakMode = 'podkidnoy' | 'perevodnoy';
+
+export interface WalletSummary {
+  playerId: string;
+  name: string;
+  chips: number;
+  wins: number;
+  isAdmin?: boolean;
+}
+
+export interface DurakTablePair {
+  attack: Card;
+  defense: Card | null;
+}
+
+export interface DurakPlayer {
+  id: string;
+  name: string;
+  hand: Card[];
+  isHost?: boolean;
+  isBot?: boolean;
+  connected: boolean;
+  finishedOrder: number | null;
+}
+
+export interface DurakState {
+  mode: DurakMode;
+  players: DurakPlayer[];
+  deck: Card[];
+  discardCount: number;
+  trumpSuit: Suit;
+  trumpCard: Card | null;
+  attackerIndex: number;
+  defenderIndex: number;
+  table: DurakTablePair[];
+  passedPlayerIds: string[];
+  defenderTaking: boolean;
+  phase: 'playing' | 'round_over';
+  loserId: string | null;
+  logs: GameLogEntry[];
+}
+
+export type DurakAction =
+  | { type: 'ATTACK'; playerId: string; cardId: string }
+  | { type: 'DEFEND'; playerId: string; cardId: string; attackIndex: number }
+  | { type: 'TRANSFER'; playerId: string; cardId: string }
+  | { type: 'PASS_ATTACK'; playerId: string }
+  | { type: 'TAKE_CARDS'; playerId: string }
+  | { type: 'NEW_DURAK_GAME'; playerId: string };
+
 /** Multiplayer WebSocket protocol */
 export interface RoomPlayerInfo {
   id: string;
@@ -95,20 +150,33 @@ export interface RoomPlayerInfo {
 
 export interface RoomInfo {
   code: string;
+  gameType: GameType;
+  durakMode: DurakMode;
   players: RoomPlayerInfo[];
   started: boolean;
 }
 
 export type ClientMessage =
-  | { type: 'CREATE_ROOM'; playerName: string; playerId: string; avatarUrl?: string }
+  | { type: 'CREATE_ROOM'; playerName: string; playerId: string; avatarUrl?: string; gameType?: GameType; durakMode?: DurakMode }
   | { type: 'JOIN_ROOM'; code: string; playerName: string; playerId: string; avatarUrl?: string }
+  | { type: 'SET_ROOM_GAME'; code: string; playerId: string; gameType: GameType; durakMode?: DurakMode }
   | { type: 'ADD_BOT'; code: string; playerId: string }
   | { type: 'REMOVE_BOT'; code: string; playerId: string; botId: string }
   | { type: 'START_GAME'; code: string; playerId: string }
   | { type: 'GAME_ACTION'; code: string; action: GameAction }
+  | { type: 'DURAK_ACTION'; code: string; action: DurakAction }
+  | { type: 'GET_WALLET'; playerId: string; playerName: string }
+  | { type: 'CLAIM_BONUS'; playerId: string; playerName: string }
+  | { type: 'GET_LEADERBOARD' }
+  | { type: 'ADMIN_GET_WALLETS'; adminPlayerId: string }
+  | { type: 'ADMIN_ADJUST_CHIPS'; adminPlayerId: string; targetId: string; delta: number }
   | { type: 'LEAVE_ROOM'; code: string; playerId: string };
 
 export type ServerMessage =
   | { type: 'ROOM_STATE'; room: RoomInfo }
   | { type: 'GAME_STATE'; state: GameState }
+  | { type: 'DURAK_STATE'; state: DurakState }
+  | { type: 'WALLET_UPDATE'; wallet: WalletSummary }
+  | { type: 'LEADERBOARD'; entries: WalletSummary[] }
+  | { type: 'ADMIN_WALLETS'; entries: WalletSummary[] }
   | { type: 'ERROR'; message: string };

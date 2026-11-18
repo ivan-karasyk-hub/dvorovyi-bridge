@@ -231,11 +231,46 @@ describe('gameEngine', () => {
       playerId: 'p1',
       cardIds: ['J_spades', 'J_hearts'],
     });
-    expect(afterJack.players[0].score).toBe(-30); // 10 - 40
+    expect(afterJack.players[0].score).toBe(0); // 10 - 40 clamped at min 0
     expect(afterJack.players[1].score).toBe(0); // 125 reset to 0
     expect(afterJack.phase).toBe('round_over');
 
-    // >= 126 match over
+    // Reshuffle multiplier (2 reshuffles -> 2x penalty points)
+    const reshuffleState = makeTestState({
+      reshuffleCount: 2,
+      players: [
+        { id: 'p1', name: 'P1', hand: [c('9', 'spades')], score: 0, connected: true },
+        { id: 'p2', name: 'P2', hand: [c('10', 'hearts')], score: 0, connected: true }, // 10 * 2 = 20
+      ],
+    });
+    const afterReshuffle = applyAction(reshuffleState, {
+      type: 'PLAY_CARDS',
+      playerId: 'p1',
+      cardIds: ['9_spades'],
+    });
+    expect(afterReshuffle.players[1].score).toBe(20);
+
+    // Elimination in 3-player game: 1 eliminated -> round_over, next round deals only to 2 alive
+    const elimState = makeTestState({
+      players: [
+        { id: 'p1', name: 'P1', hand: [c('9', 'spades')], score: 0, connected: true },
+        { id: 'p2', name: 'P2', hand: [c('K', 'spades')], score: 86, connected: true }, // 86 + 40 = 126 -> eliminated
+        { id: 'p3', name: 'P3', hand: [c('10', 'hearts')], score: 10, connected: true },
+      ],
+    });
+    const afterElim = applyAction(elimState, {
+      type: 'PLAY_CARDS',
+      playerId: 'p1',
+      cardIds: ['9_spades'],
+    });
+    expect(afterElim.phase).toBe('round_over');
+    expect(afterElim.players[1].eliminated).toBe(true);
+    const nextRound = applyAction(afterElim, { type: 'START_NEXT_ROUND', playerId: 'p1' });
+    expect(nextRound.players[1].hand).toHaveLength(0);
+    expect(nextRound.players[1].eliminated).toBe(true);
+    expect(nextRound.players[0].hand.length).toBeGreaterThanOrEqual(4);
+
+    // >= 126 match over when only 1 player remains
     const loseState = makeTestState({
       players: [
         { id: 'p1', name: 'P1', hand: [c('9', 'spades')], score: 0, connected: true },
