@@ -1,5 +1,12 @@
 import type { Card, GameAction, GameState, Rank, Suit } from './types';
-import { SUITS, checkBridgeOnTop, isCardPlayable, validateSeriesPlay } from './gameEngine';
+import {
+  SUITS,
+  calculateHandPoints,
+  checkBridgeOnTop,
+  getCardPoints,
+  isCardPlayable,
+  validateSeriesPlay,
+} from './gameEngine';
 
 function pickBestSuitForBot(hand: Card[]): Suit {
   const counts: Record<Suit, number> = {
@@ -32,6 +39,13 @@ export function chooseBotAction(state: GameState): GameAction | null {
   if (!bot || !bot.isBot) return null;
 
   if (state.phase === 'bridge_choice') {
+    const opponentsPoints = state.players
+      .filter((p) => p.id !== bot.id && !p.eliminated)
+      .reduce((sum, p) => sum + calculateHandPoints(p.hand), 0);
+    const hasJackToReduce = bot.score >= 20 && bot.hand.some((c) => c.rank === 'J');
+    if (opponentsPoints === 0 && hasJackToReduce && bot.hand.length <= 2) {
+      return { type: 'DECLINE_BRIDGE', playerId: bot.id };
+    }
     return {
       type: 'DECLARE_BRIDGE',
       playerId: bot.id,
@@ -81,10 +95,11 @@ export function chooseBotAction(state: GameState): GameAction | null {
       const completesBridge = checkBridgeOnTop(simulatedDiscard);
       const emptiesHand = series.length === bot.hand.length;
 
-      let score = series.length * 10;
+      const pointsShed = series.reduce((sum, card) => sum + getCardPoints(card), 0);
+      let score = series.length * 10 + pointsShed;
       if (completesBridge) score += 1000;
       if (emptiesHand) score += 500;
-      if (rank === 'J' && !emptiesHand) score -= 15; // Save Jack when possible
+      if (rank === 'J' && !emptiesHand) score -= 25; // Save Jack when possible to finish with -20
       if (rank === '6') {
         const lastSix = series[series.length - 1];
         const hasCover = bot.hand.some(

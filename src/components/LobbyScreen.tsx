@@ -118,6 +118,125 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
     }
   };
 
+  const friendsModal = showFriends ? (
+    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="w-full max-w-sm rounded-3xl bg-[#0b2919] border border-sky-400/35 p-5 shadow-2xl space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Users className="w-5 h-5 text-sky-400" />
+            <h3 className="font-bold text-white">Друзі</h3>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowFriends(false)}
+            className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={friendTargetId}
+            onChange={(e) => setFriendTargetId(e.target.value)}
+            placeholder="TG ID друга (напр. 123456789)"
+            className="flex-1 px-3 py-2 rounded-xl bg-white/10 border border-white/15 text-xs text-white placeholder-white/40 focus:outline-none focus:border-sky-400"
+          />
+          <button
+            type="button"
+            disabled={!friendTargetId.trim()}
+            onClick={() => {
+              onSendFriendRequest(friendTargetId.trim());
+              setFriendTargetId('');
+            }}
+            className="px-3 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 disabled:opacity-40 text-white text-xs font-bold"
+          >
+            Додати
+          </button>
+        </div>
+
+        {incomingRequests.length > 0 && (
+          <div className="space-y-1.5">
+            <div className="text-[11px] font-bold text-amber-300">Запити в друзі:</div>
+            {incomingRequests.map((req) => (
+              <div
+                key={req.fromId}
+                className="flex items-center justify-between px-3 py-2 rounded-xl bg-amber-400/10 border border-amber-400/30 text-xs"
+              >
+                <span className="font-semibold text-white truncate">{req.fromName}</span>
+                <div className="flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => onRespondFriendRequest(req.fromId, true)}
+                    className="px-2 py-1 rounded-lg bg-emerald-500 text-slate-950 font-bold text-[11px]"
+                  >
+                    Прийняти
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRespondFriendRequest(req.fromId, false)}
+                    className="px-2 py-1 rounded-lg bg-white/10 text-white/80 text-[11px]"
+                  >
+                    Ні
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="space-y-1.5 max-h-52 overflow-y-auto">
+          <div className="text-[11px] text-emerald-200/75">
+            Список друзів ({friends.length}):
+          </div>
+          {friends.length === 0 ? (
+            <p className="text-xs text-center text-white/50 py-3">
+              Поки що немає друзів. Додайте друга в кімнаті або за TG ID!
+            </p>
+          ) : (
+            friends.map((f) => {
+              const inRoom = room?.players.some((p) => p.id === f.playerId) ?? false;
+              const invited = invitedFriendIds.includes(f.playerId);
+              return (
+                <div
+                  key={f.playerId}
+                  className="flex items-center justify-between px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        f.online ? 'bg-emerald-400' : 'bg-white/30'
+                      }`}
+                    />
+                    <span className="font-semibold text-white truncate">{f.name}</span>
+                  </div>
+                  {room && f.online && !inRoom ? (
+                    <button
+                      type="button"
+                      disabled={invited}
+                      onClick={() => {
+                        onInviteFriend(f.playerId, room.code);
+                        setInvitedFriendIds((prev) => [...prev, f.playerId]);
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-bold text-[11px]"
+                    >
+                      {invited ? 'Надіслано ✓' : 'Запросити'}
+                    </button>
+                  ) : (
+                    <span className="text-[10px] text-white/50">
+                      {inRoom ? 'У кімнаті' : f.online ? 'Онлайн' : 'Офлайн'}
+                    </span>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   if (room) {
     const isHost = room.players.find((p) => p.id === currentPlayerId)?.isHost ?? false;
 
@@ -134,6 +253,20 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               </div>
             </div>
             <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setShowFriends(true)}
+                className="relative flex items-center gap-1 px-2.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold text-white active:scale-95 transition"
+                title="Друзі та запрошення"
+              >
+                <Users className="w-3.5 h-3.5 text-sky-300" />
+                Друзі
+                {incomingRequests.length > 0 && (
+                  <span className="px-1 rounded-full bg-rose-500 text-white text-[9px] font-extrabold">
+                    {incomingRequests.length}
+                  </span>
+                )}
+              </button>
               <button
                 type="button"
                 onClick={() => shareRoomInTelegram(room.code)}
@@ -364,6 +497,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             )}
           </div>
         </div>
+        {friendsModal}
       </div>
     );
   }
@@ -653,107 +787,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
         </div>
       )}
 
-      {/* Friends Modal */}
-      {showFriends && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-sm rounded-3xl bg-[#0b2919] border border-sky-400/35 p-5 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Users className="w-5 h-5 text-sky-400" />
-                <h3 className="font-bold text-white">Друзі</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowFriends(false)}
-                className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={friendTargetId}
-                onChange={(e) => setFriendTargetId(e.target.value)}
-                placeholder="TG ID друга (напр. 123456789)"
-                className="flex-1 px-3 py-2 rounded-xl bg-white/10 border border-white/15 text-xs text-white placeholder-white/40 focus:outline-none focus:border-sky-400"
-              />
-              <button
-                type="button"
-                disabled={!friendTargetId.trim()}
-                onClick={() => {
-                  onSendFriendRequest(friendTargetId.trim());
-                  setFriendTargetId('');
-                }}
-                className="px-3 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 disabled:opacity-40 text-white text-xs font-bold"
-              >
-                Додати
-              </button>
-            </div>
-
-            {incomingRequests.length > 0 && (
-              <div className="space-y-1.5">
-                <div className="text-[11px] font-bold text-amber-300">Запити в друзі:</div>
-                {incomingRequests.map((req) => (
-                  <div
-                    key={req.fromId}
-                    className="flex items-center justify-between px-3 py-2 rounded-xl bg-amber-400/10 border border-amber-400/30 text-xs"
-                  >
-                    <span className="font-semibold text-white truncate">{req.fromName}</span>
-                    <div className="flex gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => onRespondFriendRequest(req.fromId, true)}
-                        className="px-2 py-1 rounded-lg bg-emerald-500 text-slate-950 font-bold text-[11px]"
-                      >
-                        Прийняти
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onRespondFriendRequest(req.fromId, false)}
-                        className="px-2 py-1 rounded-lg bg-white/10 text-white/80 text-[11px]"
-                      >
-                        Ні
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="space-y-1.5 max-h-52 overflow-y-auto">
-              <div className="text-[11px] text-emerald-200/75">
-                Список друзів ({friends.length}):
-              </div>
-              {friends.length === 0 ? (
-                <p className="text-xs text-center text-white/50 py-3">
-                  Поки що немає друзів. Додайте друга в кімнаті або за TG ID!
-                </p>
-              ) : (
-                friends.map((f) => (
-                  <div
-                    key={f.playerId}
-                    className="flex items-center justify-between px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span
-                        className={`w-2 h-2 rounded-full ${
-                          f.online ? 'bg-emerald-400' : 'bg-white/30'
-                        }`}
-                      />
-                      <span className="font-semibold text-white truncate">{f.name}</span>
-                    </div>
-                    <span className="text-[10px] text-white/50">
-                      {f.online ? 'Онлайн' : 'Офлайн'}
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {friendsModal}
 
       {/* Admin Modal */}
       {showAdmin && wallet?.isAdmin && (
