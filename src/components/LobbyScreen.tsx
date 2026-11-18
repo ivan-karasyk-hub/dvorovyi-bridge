@@ -19,6 +19,7 @@ import {
   UserCheck,
   Lock,
   Globe,
+  RefreshCw,
 } from 'lucide-react';
 import type {
   DurakMode,
@@ -56,6 +57,7 @@ interface LobbyScreenProps {
   onSendFriendRequest: (targetId: string) => void;
   onRespondFriendRequest: (fromId: string, accept: boolean) => void;
   onInviteFriend: (friendId: string, code: string) => void;
+  onRefreshPublicRooms: () => void;
   onOpenSlot: () => void;
   onCreateRoom: (isPublic: boolean, password?: string) => void;
   onJoinRoom: (code: string, password?: string) => void;
@@ -92,6 +94,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   onSendFriendRequest,
   onRespondFriendRequest,
   onInviteFriend,
+  onRefreshPublicRooms,
   onOpenSlot,
   onCreateRoom,
   onJoinRoom,
@@ -550,15 +553,6 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             {connected && (
               <button
                 type="button"
-                onClick={onOpenSlot}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-purple-500/30 hover:bg-purple-500/45 border border-purple-400/40 text-[11px] font-bold text-purple-100"
-              >
-                🎰 Слот
-              </button>
-            )}
-            {connected && (
-              <button
-                type="button"
                 onClick={() => setShowFriends(true)}
                 className="relative inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/10 hover:bg-white/20 text-[11px] font-bold text-white"
               >
@@ -638,6 +632,15 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             >
               Холдем
             </button>
+            {connected && (
+              <button
+                type="button"
+                onClick={onOpenSlot}
+                className="px-3 py-1 rounded-full bg-purple-500/35 hover:bg-purple-500/50 border border-purple-400/45 text-purple-100 text-[11px] font-extrabold transition active:scale-95"
+              >
+                🎰 Слот
+              </button>
+            )}
           </div>
           {selectedGameType === 'durak' && (
             <div className="flex items-center justify-center gap-1.5 pt-1">
@@ -763,53 +766,69 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
         </div>
 
         {/* Public Open Rooms */}
-        {connected && publicRooms.length > 0 && (
+        {connected && (
           <div className="rounded-2xl bg-black/30 backdrop-blur-md border border-white/10 p-4 space-y-2">
-            <div className="text-xs font-bold text-emerald-200 flex items-center gap-1.5">
-              <Globe className="w-3.5 h-3.5 text-emerald-400" />
-              Відкриті кімнати ({publicRooms.length})
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-bold text-emerald-200 flex items-center gap-1.5">
+                <Globe className="w-3.5 h-3.5 text-emerald-400" />
+                Відкриті кімнати ({publicRooms.length})
+              </div>
+              <button
+                type="button"
+                onClick={onRefreshPublicRooms}
+                className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-emerald-200 active:scale-95 transition"
+                title="Оновити список кімнат"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
             </div>
-            <div className="space-y-1.5 max-h-40 overflow-y-auto">
-              {publicRooms.map((r) => (
-                <div
-                  key={r.code}
-                  className="flex items-center justify-between px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs"
-                >
-                  <div className="min-w-0">
-                    <div className="font-bold text-white flex items-center gap-1.5">
-                      <span className="text-amber-300">{r.code}</span>
-                      <span>•</span>
-                      <span className="truncate">
-                        {r.gameType === 'durak'
-                          ? 'Дурак'
-                          : r.gameType === 'holdem'
-                            ? 'Холдем'
-                            : 'Брідж'}
-                      </span>
-                      {r.hasPassword && <Lock className="w-3 h-3 text-amber-300" />}
-                    </div>
-                    <div className="text-[10px] text-white/55">
-                      Хост: {r.hostName} • {r.playerCount}/{r.maxPlayers}
-                      {r.started ? ' • триває гра' : ''}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (r.hasPassword) {
-                        const pwd = window.prompt(`Введіть пароль для кімнати ${r.code}:`);
-                        if (pwd !== null) onJoinRoom(r.code, pwd);
-                      } else {
-                        onJoinRoom(r.code);
-                      }
-                    }}
-                    className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-[11px]"
+            {publicRooms.length === 0 ? (
+              <p className="text-[11px] text-white/50 text-center py-2">
+                Наразі немає відкритих кімнат — створіть першу з перемикачем «Відкрита»!
+              </p>
+            ) : (
+              <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                {publicRooms.map((r) => (
+                  <div
+                    key={r.code}
+                    className="flex items-center justify-between px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs"
                   >
-                    Увійти
-                  </button>
-                </div>
-              ))}
-            </div>
+                    <div className="min-w-0">
+                      <div className="font-bold text-white flex items-center gap-1.5">
+                        <span className="text-amber-300">{r.code}</span>
+                        <span>•</span>
+                        <span className="truncate">
+                          {r.gameType === 'durak'
+                            ? 'Дурак'
+                            : r.gameType === 'holdem'
+                              ? 'Холдем'
+                              : 'Брідж'}
+                        </span>
+                        {r.hasPassword && <Lock className="w-3 h-3 text-amber-300" />}
+                      </div>
+                      <div className="text-[10px] text-white/55">
+                        Хост: {r.hostName} • {r.playerCount}/{r.maxPlayers}
+                        {r.started ? ' • триває гра' : ''}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (r.hasPassword) {
+                          const pwd = window.prompt(`Введіть пароль для кімнати ${r.code}:`);
+                          if (pwd !== null) onJoinRoom(r.code, pwd);
+                        } else {
+                          onJoinRoom(r.code);
+                        }
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-[11px]"
+                    >
+                      Увійти
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

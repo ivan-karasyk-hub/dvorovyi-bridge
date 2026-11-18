@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Coins, Sparkles, X, Zap } from 'lucide-react';
-import type { SlotSpinOutcome } from '../shared/types';
+import type { SlotSpinOutcome, SlotSymbol } from '../shared/types';
 import { triggerHaptic } from '../utils/telegram';
 import { playBridgeSound, playCardSound, playSpecialSound } from '../utils/sound';
 
@@ -14,13 +14,18 @@ interface SlotModalProps {
 }
 
 const BET_OPTIONS = [10, 25, 50, 100, 250];
-const DEFAULT_GRID: string[][] = [
+const ALL_SYMBOLS: SlotSymbol[] = ['🍒', '🍋', '🍇', '🔔', '💎', '7️⃣', '🃏'];
+const DEFAULT_GRID: SlotSymbol[][] = [
   ['🍒', '7️⃣', '💎'],
   ['🍋', '🃏', '🔔'],
   ['🍇', '💎', '🍒'],
   ['🔔', '7️⃣', '🍋'],
   ['🍒', '🍇', '💎'],
 ];
+
+function randomSym(): SlotSymbol {
+  return ALL_SYMBOLS[Math.floor(Math.random() * ALL_SYMBOLS.length)];
+}
 
 export const SlotModal: React.FC<SlotModalProps> = ({
   chips,
@@ -30,40 +35,85 @@ export const SlotModal: React.FC<SlotModalProps> = ({
   onClose,
 }) => {
   const [bet, setBet] = useState(10);
-  const [spinning, setSpinning] = useState(false);
-  const [freeSpinsLeft, setFreeSpinsLeft] = useState(0);
+  const [spinningCols, setSpinningCols] = useState<boolean[]>([
+    false,
+    false,
+    false,
+    false,
+    false,
+  ]);
+  const [displayGrid, setDisplayGrid] = useState<SlotSymbol[][]>(
+    () => lastResult?.grid ?? DEFAULT_GRID,
+  );
+  const [settledResult, setSettledResult] = useState<SlotSpinOutcome | null>(lastResult);
+  const [freeSpinsLeft, setFreeSpinsLeft] = useState(lastResult?.freeSpinsLeft ?? 0);
 
+  const isAnySpinning = spinningCols.some(Boolean);
+  const spinColsRef = useRef(spinningCols);
+  spinColsRef.current = spinningCols;
+
+  // Cycle symbols rapidly for any column that is currently spinning
+  useEffect(() => {
+    if (!isAnySpinning) return;
+    const id = window.setInterval(() => {
+      setDisplayGrid((prev) =>
+        prev.map((col, colIdx) =>
+          spinColsRef.current[colIdx] ? [randomSym(), randomSym(), randomSym()] : col,
+        ),
+      );
+    }, 65);
+    return () => clearInterval(id);
+  }, [isAnySpinning]);
+
+  // When server result arrives, stop reels one-by-one left-to-right
   useEffect(() => {
     if (!lastResult) return;
-    setSpinning(false);
-    if (lastResult.freeSpinsAwarded > 0) {
-      setFreeSpinsLeft((prev) => prev + lastResult.freeSpinsAwarded);
-      playBridgeSound();
-    } else if (lastResult.win > 0) {
-      playSpecialSound();
+    const timers: number[] = [];
+
+    for (let col = 0; col < 5; col++) {
+      const t = window.setTimeout(() => {
+        setDisplayGrid((prev) =>
+          prev.map((c, idx) => (idx === col ? lastResult.grid[col] : c)),
+        );
+        setSpinningCols((prev) => prev.map((s, idx) => (idx === col ? false : s)));
+        playCardSound();
+
+        if (col === 4) {
+          setSettledResult(lastResult);
+          setFreeSpinsLeft(lastResult.freeSpinsLeft);
+          if (lastResult.freeSpinsAwarded > 0) {
+            playBridgeSound();
+          } else if (lastResult.win > 0) {
+            playSpecialSound();
+          }
+        }
+      }, 320 + col * 160);
+      timers.push(t);
     }
+
+    return () => {
+      timers.forEach((t) => clearTimeout(t));
+    };
   }, [lastResult]);
 
-  const grid = lastResult?.grid ?? DEFAULT_GRID;
   const bonusCost = bet * 50;
 
   const handleSpinClick = () => {
-    if (spinning) return;
+    if (isAnySpinning) return;
     if (freeSpinsLeft === 0 && chips < bet) return;
     triggerHaptic('medium');
     playCardSound();
-    setSpinning(true);
-    if (freeSpinsLeft > 0) {
-      setFreeSpinsLeft((prev) => Math.max(0, prev - 1));
-    }
+    setSettledResult(null);
+    setSpinningCols([true, true, true, true, true]);
     onSpin(bet);
   };
 
   const handleBuyBonusClick = () => {
-    if (spinning || chips < bonusCost || freeSpinsLeft > 0) return;
+    if (isAnySpinning || chips < bonusCost || freeSpinsLeft > 0) return;
     triggerHaptic('heavy');
     playSpecialSound();
-    setSpinning(true);
+    setSettledResult(null);
+    setSpinningCols([true, true, true, true, true]);
     onBuyBonus(bet);
   };
 
@@ -98,38 +148,48 @@ export const SlotModal: React.FC<SlotModalProps> = ({
         )}
 
         {/* 5x3 Reels */}
-        <div className="rounded-2xl bg-black/55 border border-amber-400/30 p-2.5">
+        <div className="rounded-2xl bg-black/60 border border-amber-400/30 p-2.5 overflow-hidden">
           <div className="grid grid-cols-5 gap-1.5">
-            {grid.map((col, colIdx) => (
-              <div key={colIdx} className="space-y-1.5">
-                {col.map((sym, rowIdx) => (
-                  <motion.div
-                    key={`${colIdx}_${rowIdx}_${lastResult?.win ?? 0}_${spinning ? 's' : 'i'}`}
-                    initial={spinning ? { y: -12, opacity: 0.4 } : { scale: 0.9, opacity: 0.9 }}
-                    animate={{ y: 0, scale: 1, opacity: 1 }}
-                    transition={{ duration: 0.22, delay: colIdx * 0.04 }}
-                    className={`h-12 rounded-xl flex items-center justify-center text-2xl border ${
-                      sym === '🃏'
-                        ? 'bg-amber-400/20 border-amber-400/60'
-                        : 'bg-white/5 border-white/10'
-                    }`}
-                  >
-                    {sym}
-                  </motion.div>
-                ))}
-              </div>
-            ))}
+            {displayGrid.map((col, colIdx) => {
+              const colSpinning = spinningCols[colIdx];
+              return (
+                <div key={colIdx} className="space-y-1.5">
+                  {col.map((sym, rowIdx) => (
+                    <motion.div
+                      key={`${colIdx}_${rowIdx}`}
+                      animate={
+                        colSpinning
+                          ? { y: [0, 4, -4, 0], opacity: 0.75 }
+                          : { y: 0, opacity: 1, scale: 1 }
+                      }
+                      transition={{ duration: 0.12 }}
+                      className={`h-12 rounded-xl flex items-center justify-center text-2xl border ${
+                        colSpinning
+                          ? 'bg-white/10 border-amber-300/30 blur-[0.6px]'
+                          : sym === '🃏'
+                            ? 'bg-amber-400/20 border-amber-400/60'
+                            : 'bg-white/5 border-white/10'
+                      }`}
+                    >
+                      {sym}
+                    </motion.div>
+                  ))}
+                </div>
+              );
+            })}
           </div>
         </div>
 
         {/* Win Status */}
         <div className="h-7 flex items-center justify-center text-xs font-extrabold">
-          {lastResult ? (
-            lastResult.win > 0 ? (
+          {isAnySpinning ? (
+            <span className="text-amber-300 animate-pulse">Крутимо барабани...</span>
+          ) : settledResult ? (
+            settledResult.win > 0 ? (
               <span className="text-emerald-300 flex items-center gap-1">
                 <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                Виграш: +{lastResult.win} фішок
-                {lastResult.multiplier > 1 && ` (${lastResult.multiplier}x)`}
+                Виграш: +{settledResult.win} фішок
+                {settledResult.multiplier > 1 && ` (${settledResult.multiplier}x)`}
               </span>
             ) : (
               <span className="text-white/50">Спробуй ще! (3× 🃏 = 8 фріспінів)</span>
@@ -147,7 +207,7 @@ export const SlotModal: React.FC<SlotModalProps> = ({
               <button
                 key={b}
                 type="button"
-                disabled={freeSpinsLeft > 0}
+                disabled={freeSpinsLeft > 0 || isAnySpinning}
                 onClick={() => setBet(b)}
                 className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition ${
                   bet === b
@@ -165,7 +225,7 @@ export const SlotModal: React.FC<SlotModalProps> = ({
         <div className="flex gap-2">
           <button
             type="button"
-            disabled={spinning || chips < bonusCost || freeSpinsLeft > 0}
+            disabled={isAnySpinning || chips < bonusCost || freeSpinsLeft > 0}
             onClick={handleBuyBonusClick}
             className="px-3 py-3 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white text-xs font-extrabold flex items-center gap-1 active:scale-95 transition"
             title="Гарантовані 3+ 🃏 (8 фріспінів з множниками 2x–5x)"
@@ -175,7 +235,7 @@ export const SlotModal: React.FC<SlotModalProps> = ({
           </button>
           <button
             type="button"
-            disabled={spinning || (freeSpinsLeft === 0 && chips < bet)}
+            disabled={isAnySpinning || (freeSpinsLeft === 0 && chips < bet)}
             onClick={handleSpinClick}
             className="flex-1 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-950 font-black text-sm shadow-lg active:scale-95 transition"
           >

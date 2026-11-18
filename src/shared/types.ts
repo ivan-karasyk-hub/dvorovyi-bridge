@@ -237,6 +237,7 @@ export interface SlotSpinOutcome {
   win: number;
   scatterCount: number;
   freeSpinsAwarded: number;
+  freeSpinsLeft: number;
   multiplier: number;
   isBonusPurchase: boolean;
   winningLines: number[];

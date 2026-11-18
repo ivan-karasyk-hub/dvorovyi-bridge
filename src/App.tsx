@@ -440,6 +440,7 @@ export const App: React.FC = () => {
             code,
           })
         }
+        onRefreshPublicRooms={() => sendWs({ type: 'GET_PUBLIC_ROOMS' })}
         onOpenSlot={() => setShowSlot(true)}
         onCreateRoom={handleCreateRoom}
         onJoinRoom={handleJoinRoom}

@@ -2,13 +2,13 @@ import type { SlotSpinOutcome, SlotSymbol } from '../src/shared/types';
 import { addChips, getOrCreateWallet } from './wallet';
 
 const WEIGHTED_REEL: SlotSymbol[] = [
-  '🍒', '🍒', '🍒', '🍒', '🍒',
-  '🍋', '🍋', '🍋', '🍋',
-  '🍇', '🍇', '🍇', '🍇',
-  '🔔', '🔔', '🔔',
-  '💎', '💎',
-  '7️⃣',
-  '🃏', '🃏',
+  '🍒', '🍒', '🍒', '🍒', '🍒', '🍒',
+  '🍋', '🍋', '🍋', '🍋', '🍋',
+  '🍇', '🍇', '🍇', '🍇', '🍇',
+  '🔔', '🔔', '🔔', '🔔',
+  '💎', '💎', '💎',
+  '7️⃣', '7️⃣',
+  '🃏',
 ];
 
 // 5 paylines across 5 columns x 3 rows (row indices 0..2)
@@ -39,12 +39,17 @@ function randomSymbol(excludeScatter = false): SlotSymbol {
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
-function generateGrid(forceScatters = 0): SlotSymbol[][] {
+function generateGrid(forceScatters = 0, isFreeSpin = false): SlotSymbol[][] {
   const grid: SlotSymbol[][] = [];
   for (let col = 0; col < 5; col++) {
     const column: SlotSymbol[] = [];
+    let colHasScatter = false;
     for (let row = 0; row < 3; row++) {
-      column.push(randomSymbol(false));
+      // During free spins, scatter is much rarer (~1 in 35) and max 1 per column
+      const skipScatter = colHasScatter || (isFreeSpin && Math.random() > 0.35);
+      const sym = randomSymbol(skipScatter);
+      if (sym === '🃏') colHasScatter = true;
+      column.push(sym);
     }
     grid.push(column);
   }
@@ -64,6 +69,7 @@ function evaluateGrid(
   bet: number,
   multiplier: number,
   isBonusPurchase: boolean,
+  isFreeSpin: boolean,
   cost: number,
 ): SlotSpinOutcome {
   let totalWin = 0;
@@ -99,7 +105,8 @@ function evaluateGrid(
 
   let freeSpinsAwarded = 0;
   if (scatterCount >= 3) {
-    freeSpinsAwarded = scatterCount >= 4 ? 12 : 8;
+    // Retriggers during free spins grant +3 extra spins (instead of +8)
+    freeSpinsAwarded = isFreeSpin ? 3 : scatterCount >= 4 ? 12 : 8;
     const scTable = PAYOUT_TABLE['🃏'];
     const scFactor =
       scatterCount >= 5 ? scTable.five : scatterCount === 4 ? scTable.four : scTable.three;
@@ -113,6 +120,7 @@ function evaluateGrid(
     win: totalWin,
     scatterCount,
     freeSpinsAwarded,
+    freeSpinsLeft: 0,
     multiplier,
     isBonusPurchase,
     winningLines,
@@ -142,13 +150,14 @@ export async function executeSlotSpin(
   }
 
   const multiplier = usingFreeSpin ? [2, 2, 3, 4, 5][Math.floor(Math.random() * 5)] : 1;
-  const grid = generateGrid(buyBonus ? 3 : 0);
-  const result = evaluateGrid(grid, bet, multiplier, buyBonus, cost);
+  const grid = generateGrid(buyBonus ? 3 : 0, usingFreeSpin);
+  const result = evaluateGrid(grid, bet, multiplier, buyBonus, usingFreeSpin, cost);
 
   if (result.freeSpinsAwarded > 0) {
     nextFreeSpins += result.freeSpinsAwarded;
   }
   freeSpinsRemaining.set(playerId, nextFreeSpins);
+  result.freeSpinsLeft = nextFreeSpins;
 
   const netDelta = result.win - cost;
   const updated = await addChips(playerId, playerName, netDelta, false);
