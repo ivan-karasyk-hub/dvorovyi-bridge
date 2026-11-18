@@ -15,8 +15,17 @@ import {
   Coins,
   Trophy,
   ShieldAlert,
+  UserPlus,
+  UserCheck,
 } from 'lucide-react';
-import type { DurakMode, GameType, RoomInfo, WalletSummary } from '../shared/types';
+import type {
+  DurakMode,
+  FriendEntry,
+  FriendRequestEntry,
+  GameType,
+  RoomInfo,
+  WalletSummary,
+} from '../shared/types';
 import { copyTextToClipboard, getRoomInviteUrl, shareRoomInTelegram } from '../utils/telegram';
 
 interface LobbyScreenProps {
@@ -29,6 +38,8 @@ interface LobbyScreenProps {
   wallet: WalletSummary | null;
   leaderboard: WalletSummary[];
   adminWallets: WalletSummary[];
+  friends: FriendEntry[];
+  incomingRequests: FriendRequestEntry[];
   selectedGameType: GameType;
   selectedDurakMode: DurakMode;
   onSelectGameType: (gameType: GameType) => void;
@@ -38,6 +49,9 @@ interface LobbyScreenProps {
   onFetchLeaderboard: () => void;
   onFetchAdminWallets: () => void;
   onAdminAdjustChips: (targetId: string, delta: number) => void;
+  onSendFriendRequest: (targetId: string) => void;
+  onRespondFriendRequest: (fromId: string, accept: boolean) => void;
+  onInviteFriend: (friendId: string, code: string) => void;
   onCreateRoom: () => void;
   onJoinRoom: (code: string) => void;
   onAddBot: () => void;
@@ -58,6 +72,8 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   wallet,
   leaderboard,
   adminWallets,
+  friends,
+  incomingRequests,
   selectedGameType,
   selectedDurakMode,
   onSelectGameType,
@@ -67,6 +83,9 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   onFetchLeaderboard,
   onFetchAdminWallets,
   onAdminAdjustChips,
+  onSendFriendRequest,
+  onRespondFriendRequest,
+  onInviteFriend,
   onCreateRoom,
   onJoinRoom,
   onAddBot,
@@ -80,6 +99,9 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   const [sandboxCount, setSandboxCount] = useState<2 | 3 | 4 | 5 | 6>(2);
   const [copied, setCopied] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [showFriends, setShowFriends] = useState(false);
+  const [friendTargetId, setFriendTargetId] = useState('');
+  const [invitedFriendIds, setInvitedFriendIds] = useState<string[]>([]);
   const [showAdmin, setShowAdmin] = useState(false);
   const [adminTargetId, setAdminTargetId] = useState('');
   const [adminDelta, setAdminDelta] = useState('1000');
@@ -161,12 +183,25 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                     >
                       Дурак
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => onSetRoomGame('holdem', room.durakMode)}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition ${
+                        room.gameType === 'holdem'
+                          ? 'bg-amber-400 text-slate-950'
+                          : 'bg-white/10 text-white/75'
+                      }`}
+                    >
+                      Холдем
+                    </button>
                   </div>
                 ) : (
                   <span className="font-bold text-amber-300">
                     {room.gameType === 'durak'
                       ? `Дурак (${room.durakMode === 'perevodnoy' ? 'Перевідний' : 'Підкидний'})`
-                      : 'Карасьовий Брідж'}
+                      : room.gameType === 'holdem'
+                        ? 'Техаський Холдем'
+                        : 'Карасьовий Брідж'}
                   </span>
                 )}
               </div>
@@ -235,6 +270,19 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">
+                  {!p.isBot &&
+                    p.id !== currentPlayerId &&
+                    !friends.some((f) => f.playerId === p.id) && (
+                      <button
+                        type="button"
+                        onClick={() => onSendFriendRequest(p.id)}
+                        className="px-2 py-0.5 rounded-lg bg-sky-500/20 hover:bg-sky-500/35 text-sky-200 text-[10px] font-bold flex items-center gap-1"
+                        title="Додати в друзі"
+                      >
+                        <UserPlus className="w-3 h-3" />
+                        Друг
+                      </button>
+                    )}
                   {p.isHost && (
                     <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/30">
                       Хост
@@ -253,6 +301,36 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                 </div>
               </div>
             ))}
+
+            {/* Quick invite online friends directly inside the app */}
+            {room.players.length < 6 &&
+              friends.some((f) => f.online && !room.players.some((p) => p.id === f.playerId)) && (
+                <div className="pt-1 space-y-1">
+                  <div className="text-[10px] text-emerald-200/75">Друзі онлайн (запросити в 1 клік):</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {friends
+                      .filter((f) => f.online && !room.players.some((p) => p.id === f.playerId))
+                      .map((f) => {
+                        const sent = invitedFriendIds.includes(f.playerId);
+                        return (
+                          <button
+                            key={f.playerId}
+                            type="button"
+                            disabled={sent}
+                            onClick={() => {
+                              onInviteFriend(f.playerId, room.code);
+                              setInvitedFriendIds((prev) => [...prev, f.playerId]);
+                            }}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/35 disabled:opacity-50 border border-emerald-400/30 text-emerald-100 text-[11px] font-semibold"
+                          >
+                            <UserCheck className="w-3 h-3" />
+                            {f.name} {sent ? '✓' : '+'}
+                          </button>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
           </div>
 
           {error && (
@@ -326,6 +404,21 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                 Топ
               </button>
             )}
+            {connected && (
+              <button
+                type="button"
+                onClick={() => setShowFriends(true)}
+                className="relative inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/10 hover:bg-white/20 text-[11px] font-bold text-white"
+              >
+                <Users className="w-3 h-3 text-sky-300" />
+                Друзі
+                {incomingRequests.length > 0 && (
+                  <span className="ml-0.5 px-1.5 rounded-full bg-rose-500 text-white text-[9px] font-extrabold">
+                    {incomingRequests.length}
+                  </span>
+                )}
+              </button>
+            )}
             {connected && wallet?.isAdmin && (
               <button
                 type="button"
@@ -355,7 +448,9 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
           <p className="text-xs text-emerald-200/75">
             {selectedGameType === 'durak'
               ? `Дурак (${selectedDurakMode === 'perevodnoy' ? 'Перевідний' : 'Підкидний'}) • 2–6 гравців`
-              : 'Гра до 125 очок • 2–6 гравців'}
+              : selectedGameType === 'holdem'
+                ? 'Техаський Холдем на фішки • 2–6 гравців'
+                : 'Гра до 125 очок • 2–6 гравців'}
           </p>
           <div className="flex items-center justify-center gap-1.5 pt-1">
             <button
@@ -380,9 +475,17 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             >
               Дурак
             </button>
-            <span className="px-2.5 py-1 rounded-full bg-white/10 text-white/45 text-[11px] font-semibold">
-              Холдем • скоро
-            </span>
+            <button
+              type="button"
+              onClick={() => onSelectGameType('holdem')}
+              className={`px-3 py-1 rounded-full text-[11px] font-extrabold transition ${
+                selectedGameType === 'holdem'
+                  ? 'bg-amber-400 text-slate-950'
+                  : 'bg-white/10 text-white/75 hover:bg-white/20'
+              }`}
+            >
+              Холдем
+            </button>
           </div>
           {selectedGameType === 'durak' && (
             <div className="flex items-center justify-center gap-1.5 pt-1">
@@ -542,6 +645,108 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                       <Coins className="w-3.5 h-3.5" />
                       {entry.chips}
                     </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Friends Modal */}
+      {showFriends && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-sm rounded-3xl bg-[#0b2919] border border-sky-400/35 p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Users className="w-5 h-5 text-sky-400" />
+                <h3 className="font-bold text-white">Друзі</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowFriends(false)}
+                className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={friendTargetId}
+                onChange={(e) => setFriendTargetId(e.target.value)}
+                placeholder="TG ID друга (напр. 123456789)"
+                className="flex-1 px-3 py-2 rounded-xl bg-white/10 border border-white/15 text-xs text-white placeholder-white/40 focus:outline-none focus:border-sky-400"
+              />
+              <button
+                type="button"
+                disabled={!friendTargetId.trim()}
+                onClick={() => {
+                  onSendFriendRequest(friendTargetId.trim());
+                  setFriendTargetId('');
+                }}
+                className="px-3 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 disabled:opacity-40 text-white text-xs font-bold"
+              >
+                Додати
+              </button>
+            </div>
+
+            {incomingRequests.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="text-[11px] font-bold text-amber-300">Запити в друзі:</div>
+                {incomingRequests.map((req) => (
+                  <div
+                    key={req.fromId}
+                    className="flex items-center justify-between px-3 py-2 rounded-xl bg-amber-400/10 border border-amber-400/30 text-xs"
+                  >
+                    <span className="font-semibold text-white truncate">{req.fromName}</span>
+                    <div className="flex gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => onRespondFriendRequest(req.fromId, true)}
+                        className="px-2 py-1 rounded-lg bg-emerald-500 text-slate-950 font-bold text-[11px]"
+                      >
+                        Прийняти
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onRespondFriendRequest(req.fromId, false)}
+                        className="px-2 py-1 rounded-lg bg-white/10 text-white/80 text-[11px]"
+                      >
+                        Ні
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="space-y-1.5 max-h-52 overflow-y-auto">
+              <div className="text-[11px] text-emerald-200/75">
+                Список друзів ({friends.length}):
+              </div>
+              {friends.length === 0 ? (
+                <p className="text-xs text-center text-white/50 py-3">
+                  Поки що немає друзів. Додайте друга в кімнаті або за TG ID!
+                </p>
+              ) : (
+                friends.map((f) => (
+                  <div
+                    key={f.playerId}
+                    className="flex items-center justify-between px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          f.online ? 'bg-emerald-400' : 'bg-white/30'
+                        }`}
+                      />
+                      <span className="font-semibold text-white truncate">{f.name}</span>
+                    </div>
+                    <span className="text-[10px] text-white/50">
+                      {f.online ? 'Онлайн' : 'Офлайн'}
+                    </span>
                   </div>
                 ))
               )}

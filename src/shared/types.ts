@@ -87,8 +87,87 @@ export type GameAction =
   | { type: 'START_NEXT_ROUND'; playerId: string }
   | { type: 'REMATCH'; playerId: string };
 
-export type GameType = 'bridge' | 'durak';
+export type GameType = 'bridge' | 'durak' | 'holdem';
 export type DurakMode = 'podkidnoy' | 'perevodnoy';
+
+export type HoldemRank =
+  | '2'
+  | '3'
+  | '4'
+  | '5'
+  | '6'
+  | '7'
+  | '8'
+  | '9'
+  | '10'
+  | 'J'
+  | 'Q'
+  | 'K'
+  | 'A';
+
+export interface HoldemCard {
+  id: string;
+  suit: Suit;
+  rank: HoldemRank;
+}
+
+export type HoldemStreet = 'preflop' | 'flop' | 'turn' | 'river' | 'showdown';
+
+export interface HoldemPlayer {
+  id: string;
+  name: string;
+  hand: HoldemCard[];
+  chips: number;
+  currentBet: number;
+  totalBetInHand: number;
+  folded: boolean;
+  allIn: boolean;
+  actedThisStreet: boolean;
+  isHost?: boolean;
+  isBot?: boolean;
+  connected: boolean;
+}
+
+export interface HoldemState {
+  players: HoldemPlayer[];
+  deck: HoldemCard[];
+  communityCards: HoldemCard[];
+  pot: number;
+  dealerIndex: number;
+  currentPlayerIndex: number;
+  street: HoldemStreet;
+  currentMaxBet: number;
+  minRaise: number;
+  smallBlind: number;
+  bigBlind: number;
+  winnerIds: string[];
+  winningHandName: string | null;
+  logs: GameLogEntry[];
+}
+
+export type HoldemAction =
+  | { type: 'HOLDEM_FOLD'; playerId: string }
+  | { type: 'HOLDEM_CHECK_CALL'; playerId: string }
+  | { type: 'HOLDEM_RAISE'; playerId: string; amount: number }
+  | { type: 'HOLDEM_ALL_IN'; playerId: string }
+  | { type: 'HOLDEM_NEXT_HAND'; playerId: string };
+
+export interface FriendEntry {
+  playerId: string;
+  name: string;
+  online: boolean;
+}
+
+export interface FriendRequestEntry {
+  fromId: string;
+  fromName: string;
+}
+
+export interface InGameRoomInvite {
+  code: string;
+  fromName: string;
+  gameType: GameType;
+}
 
 export interface WalletSummary {
   playerId: string;
@@ -165,9 +244,14 @@ export type ClientMessage =
   | { type: 'START_GAME'; code: string; playerId: string }
   | { type: 'GAME_ACTION'; code: string; action: GameAction }
   | { type: 'DURAK_ACTION'; code: string; action: DurakAction }
+  | { type: 'HOLDEM_ACTION'; code: string; action: HoldemAction }
   | { type: 'GET_WALLET'; playerId: string; playerName: string }
   | { type: 'CLAIM_BONUS'; playerId: string; playerName: string }
   | { type: 'GET_LEADERBOARD' }
+  | { type: 'GET_FRIENDS'; playerId: string }
+  | { type: 'SEND_FRIEND_REQUEST'; fromId: string; fromName: string; targetId: string }
+  | { type: 'RESPOND_FRIEND_REQUEST'; playerId: string; fromId: string; accept: boolean }
+  | { type: 'INVITE_FRIEND_TO_ROOM'; fromId: string; fromName: string; friendId: string; code: string }
   | { type: 'ADMIN_GET_WALLETS'; adminPlayerId: string }
   | { type: 'ADMIN_ADJUST_CHIPS'; adminPlayerId: string; targetId: string; delta: number }
   | { type: 'LEAVE_ROOM'; code: string; playerId: string };
@@ -176,7 +260,10 @@ export type ServerMessage =
   | { type: 'ROOM_STATE'; room: RoomInfo }
   | { type: 'GAME_STATE'; state: GameState }
   | { type: 'DURAK_STATE'; state: DurakState }
+  | { type: 'HOLDEM_STATE'; state: HoldemState }
   | { type: 'WALLET_UPDATE'; wallet: WalletSummary }
   | { type: 'LEADERBOARD'; entries: WalletSummary[] }
+  | { type: 'FRIENDS_STATE'; friends: FriendEntry[]; incomingRequests: FriendRequestEntry[] }
+  | { type: 'ROOM_INVITE'; invite: InGameRoomInvite }
   | { type: 'ADMIN_WALLETS'; entries: WalletSummary[] }
   | { type: 'ERROR'; message: string };

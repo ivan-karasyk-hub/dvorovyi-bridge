@@ -11,6 +11,18 @@ import {
   sanitizeDurakStateForPlayer,
 } from '../src/shared/durakEngine';
 import {
+  applyHoldemAction,
+  chooseHoldemBotAction,
+  createHoldemMatch,
+  sanitizeHoldemStateForPlayer,
+} from '../src/shared/holdemEngine';
+import {
+  getFriendsState,
+  registerPlayerName,
+  respondFriendRequest,
+  sendFriendRequest,
+} from './friends';
+import {
   addChips,
   claimRescueBonus,
   getLeaderboard,
@@ -24,6 +36,7 @@ import type {
   DurakState,
   GameState,
   GameType,
+  HoldemState,
   RoomInfo,
   RoomPlayerInfo,
   ServerMessage,
@@ -37,6 +50,8 @@ interface Room {
   sockets: Map<string, WebSocket>;
   gameState: GameState | null;
   durakState: DurakState | null;
+  holdemState: HoldemState | null;
+  holdemStartingChips: Record<string, number>;
   botTimer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -67,10 +82,29 @@ function broadcastRoom(room: Room): void {
     gameType: room.gameType,
     durakMode: room.durakMode,
     players: room.players,
-    started: room.gameState !== null || room.durakState !== null,
+    started:
+      room.gameState !== null || room.durakState !== null || room.holdemState !== null,
   };
   for (const [, ws] of room.sockets) {
     send(ws, { type: 'ROOM_STATE', room: info });
+  }
+}
+
+function getOnlinePlayerIds(): Set<string> {
+  return new Set(socketPlayerIds.values());
+}
+
+function pushFriendsStateTo(playerId: string): void {
+  const online = getOnlinePlayerIds();
+  const fState = getFriendsState(playerId, online);
+  for (const [clientWs, pid] of socketPlayerIds.entries()) {
+    if (pid === playerId) {
+      send(clientWs, {
+        type: 'FRIENDS_STATE',
+        friends: fState.friends,
+        incomingRequests: fState.incomingRequests,
+      });
+    }
   }
 }
 
@@ -185,6 +219,61 @@ function broadcastDurakState(room: Room): void {
   }
 }
 
+async function syncHoldemShowdownChips(
+  room: Room,
+  prevState: HoldemState | null,
+  nextState: HoldemState,
+): Promise<void> {
+  if (!prevState) return;
+  if (prevState.street !== 'showdown' && nextState.street === 'showdown') {
+    for (const p of nextState.players) {
+      if (p.isBot) continue;
+      const startChips = room.holdemStartingChips[p.id] ?? p.chips;
+      const delta = p.chips - startChips;
+      room.holdemStartingChips[p.id] = p.chips;
+      if (delta !== 0 || nextState.winnerIds.includes(p.id)) {
+        const w = await addChips(
+          p.id,
+          p.name,
+          delta,
+          nextState.winnerIds.includes(p.id),
+        );
+        const ws = room.sockets.get(p.id);
+        if (ws) send(ws, { type: 'WALLET_UPDATE', wallet: { ...w, isAdmin: isAdminPlayer(p.id) } });
+      }
+    }
+  }
+}
+
+function scheduleHoldemBotTurnIfNeeded(room: Room): void {
+  clearBotTimer(room);
+  const state = room.holdemState;
+  if (!state || room.sockets.size === 0 || state.street === 'showdown') return;
+
+  const botAction = chooseHoldemBotAction(state);
+  if (!botAction) return;
+
+  room.botTimer = setTimeout(() => {
+    room.botTimer = null;
+    if (!room.holdemState || room.sockets.size === 0) return;
+    const prev = room.holdemState;
+    const nextAction = chooseHoldemBotAction(prev);
+    if (!nextAction) return;
+    room.holdemState = applyHoldemAction(prev, nextAction);
+    broadcastHoldemState(room);
+    void syncHoldemShowdownChips(room, prev, room.holdemState);
+    scheduleHoldemBotTurnIfNeeded(room);
+  }, BOT_DELAY_MS);
+}
+
+function broadcastHoldemState(room: Room): void {
+  if (!room.holdemState) return;
+  for (const [playerId, ws] of room.sockets) {
+    const sanitized = sanitizeHoldemStateForPlayer(room.holdemState, playerId);
+    send(ws, { type: 'HOLDEM_STATE', state: sanitized });
+  }
+}
+
 function broadcastGameState(room: Room): void {
   if (!room.gameState) return;
   for (const [playerId, ws] of room.sockets) {
@@ -266,6 +355,8 @@ wss.on('connection', (ws) => {
           sockets: new Map([[msg.playerId, ws]]),
           gameState: null,
           durakState: null,
+          holdemState: null,
+          holdemStartingChips: {},
           botTimer: null,
         };
         rooms.set(code, room);
@@ -276,7 +367,7 @@ wss.on('connection', (ws) => {
 
       case 'SET_ROOM_GAME': {
         const room = rooms.get(msg.code);
-        if (!room || room.gameState || room.durakState) return;
+        if (!room || room.gameState || room.durakState || room.holdemState) return;
         const host = room.players.find((p) => p.id === msg.playerId && p.isHost);
         if (!host) return;
         room.gameType = msg.gameType;
@@ -317,12 +408,21 @@ wss.on('connection', (ws) => {
             };
             broadcastDurakState(room);
           }
+          if (room.holdemState) {
+            room.holdemState = {
+              ...room.holdemState,
+              players: room.holdemState.players.map((p) =>
+                p.id === msg.playerId ? { ...p, connected: true } : p,
+              ),
+            };
+            broadcastHoldemState(room);
+          }
           broadcastRoom(room);
           return;
         }
 
-        if (room.durakState) {
-          send(ws, { type: 'ERROR', message: 'Партія в Дурака вже триває — зачекайте наступну.' });
+        if (room.durakState || room.holdemState) {
+          send(ws, { type: 'ERROR', message: 'Партія вже триває — зачекайте наступну.' });
           return;
         }
 
@@ -368,7 +468,7 @@ wss.on('connection', (ws) => {
 
       case 'ADD_BOT': {
         const room = rooms.get(msg.code);
-        if (!room || room.gameState || room.durakState) return;
+        if (!room || room.gameState || room.durakState || room.holdemState) return;
         const host = room.players.find((p) => p.id === msg.playerId && p.isHost);
         if (!host) return;
         if (room.players.length >= 6) {
@@ -389,7 +489,7 @@ wss.on('connection', (ws) => {
 
       case 'REMOVE_BOT': {
         const room = rooms.get(msg.code);
-        if (!room || room.gameState || room.durakState) return;
+        if (!room || room.gameState || room.durakState || room.holdemState) return;
         const host = room.players.find((p) => p.id === msg.playerId && p.isHost);
         if (!host) return;
         room.players = room.players.filter((p) => !(p.id === msg.botId && p.isBot));
@@ -414,6 +514,23 @@ wss.on('connection', (ws) => {
           broadcastRoom(room);
           broadcastDurakState(room);
           scheduleDurakBotTurnIfNeeded(room);
+        } else if (room.gameType === 'holdem') {
+          void Promise.all(
+            room.players.map(async (p) => {
+              if (p.isBot) return { ...p, chips: 1000 };
+              const w = await getOrCreateWallet(p.id, p.name);
+              return { ...p, chips: w.chips };
+            }),
+          ).then((playersWithChips) => {
+            room.holdemStartingChips = {};
+            for (const p of playersWithChips) {
+              if (!p.isBot) room.holdemStartingChips[p.id] = p.chips;
+            }
+            room.holdemState = createHoldemMatch(playersWithChips);
+            broadcastRoom(room);
+            broadcastHoldemState(room);
+            scheduleHoldemBotTurnIfNeeded(room);
+          });
         } else {
           room.gameState = createMatch(room.players);
           broadcastRoom(room);
@@ -447,14 +564,69 @@ wss.on('connection', (ws) => {
         break;
       }
 
+      case 'HOLDEM_ACTION': {
+        const room = rooms.get(msg.code);
+        if (!room || !room.holdemState) return;
+        const prev = room.holdemState;
+        const nextState = applyHoldemAction(prev, msg.action);
+        room.holdemState = nextState;
+        broadcastHoldemState(room);
+        void syncHoldemShowdownChips(room, prev, nextState);
+        scheduleHoldemBotTurnIfNeeded(room);
+        break;
+      }
+
       case 'GET_WALLET': {
         socketPlayerIds.set(ws, msg.playerId);
+        registerPlayerName(msg.playerId, msg.playerName);
+        pushFriendsStateTo(msg.playerId);
         void getOrCreateWallet(msg.playerId, msg.playerName).then((wallet) => {
           send(ws, {
             type: 'WALLET_UPDATE',
             wallet: { ...wallet, isAdmin: isAdminPlayer(msg.playerId) },
           });
         });
+        break;
+      }
+
+      case 'GET_FRIENDS': {
+        pushFriendsStateTo(msg.playerId);
+        break;
+      }
+
+      case 'SEND_FRIEND_REQUEST': {
+        const res = sendFriendRequest(msg.fromId, msg.fromName, msg.targetId);
+        if (!res.ok) {
+          send(ws, { type: 'ERROR', message: res.error || 'Не вдалося надіслати запит.' });
+        } else {
+          pushFriendsStateTo(res.targetId);
+          pushFriendsStateTo(msg.fromId);
+        }
+        break;
+      }
+
+      case 'RESPOND_FRIEND_REQUEST': {
+        respondFriendRequest(msg.playerId, msg.fromId, msg.accept);
+        pushFriendsStateTo(msg.playerId);
+        pushFriendsStateTo(msg.fromId);
+        break;
+      }
+
+      case 'INVITE_FRIEND_TO_ROOM': {
+        const room = rooms.get(msg.code);
+        if (!room) return;
+        for (const [clientWs, pid] of socketPlayerIds.entries()) {
+          if (pid === msg.friendId) {
+            send(clientWs, {
+              type: 'ROOM_INVITE',
+              invite: {
+                code: room.code,
+                fromName: msg.fromName,
+                gameType: room.gameType,
+              },
+            });
+          }
+        }
         break;
       }
 

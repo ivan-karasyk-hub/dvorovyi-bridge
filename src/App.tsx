@@ -1,14 +1,20 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { applyAction, createMatch } from './shared/gameEngine';
 import { applyDurakAction, createDurakMatch } from './shared/durakEngine';
+import { applyHoldemAction, createHoldemMatch } from './shared/holdemEngine';
 import type {
   ClientMessage,
   DurakAction,
   DurakMode,
   DurakState,
+  FriendEntry,
+  FriendRequestEntry,
   GameAction,
   GameState,
   GameType,
+  HoldemAction,
+  HoldemState,
+  InGameRoomInvite,
   RoomInfo,
   ServerMessage,
   WalletSummary,
@@ -22,6 +28,7 @@ import {
 import { LobbyScreen } from './components/LobbyScreen';
 import { GameTable } from './components/GameTable';
 import { DurakTable } from './components/DurakTable';
+import { HoldemTable } from './components/HoldemTable';
 
 function getWsUrl(): string {
   const custom = import.meta.env.VITE_WS_URL as string | undefined;
@@ -44,13 +51,18 @@ export const App: React.FC = () => {
   const [room, setRoom] = useState<RoomInfo | null>(null);
   const [onlineState, setOnlineState] = useState<GameState | null>(null);
   const [onlineDurakState, setOnlineDurakState] = useState<DurakState | null>(null);
+  const [onlineHoldemState, setOnlineHoldemState] = useState<HoldemState | null>(null);
   const [sandboxState, setSandboxState] = useState<GameState | null>(null);
   const [sandboxDurakState, setSandboxDurakState] = useState<DurakState | null>(null);
+  const [sandboxHoldemState, setSandboxHoldemState] = useState<HoldemState | null>(null);
   const [selectedGameType, setSelectedGameType] = useState<GameType>('bridge');
   const [selectedDurakMode, setSelectedDurakMode] = useState<DurakMode>('podkidnoy');
   const [wallet, setWallet] = useState<WalletSummary | null>(null);
   const [leaderboard, setLeaderboard] = useState<WalletSummary[]>([]);
   const [adminWallets, setAdminWallets] = useState<WalletSummary[]>([]);
+  const [friends, setFriends] = useState<FriendEntry[]>([]);
+  const [incomingRequests, setIncomingRequests] = useState<FriendRequestEntry[]>([]);
+  const [roomInvite, setRoomInvite] = useState<InGameRoomInvite | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -117,12 +129,19 @@ export const App: React.FC = () => {
             setOnlineState(msg.state);
           } else if (msg.type === 'DURAK_STATE') {
             setOnlineDurakState(msg.state);
+          } else if (msg.type === 'HOLDEM_STATE') {
+            setOnlineHoldemState(msg.state);
           } else if (msg.type === 'WALLET_UPDATE') {
             setWallet(msg.wallet);
           } else if (msg.type === 'LEADERBOARD') {
             setLeaderboard(msg.entries);
           } else if (msg.type === 'ADMIN_WALLETS') {
             setAdminWallets(msg.entries);
+          } else if (msg.type === 'FRIENDS_STATE') {
+            setFriends(msg.friends);
+            setIncomingRequests(msg.incomingRequests);
+          } else if (msg.type === 'ROOM_INVITE') {
+            setRoomInvite(msg.invite);
           } else if (msg.type === 'ERROR') {
             setError(msg.message);
           }
@@ -165,6 +184,7 @@ export const App: React.FC = () => {
 
   const handleJoinRoom = (code: string) => {
     setError(null);
+    setRoomInvite(null);
     sendWs({ type: 'JOIN_ROOM', code, playerName, playerId, avatarUrl });
   };
 
@@ -195,8 +215,10 @@ export const App: React.FC = () => {
     setRoom(null);
     setOnlineState(null);
     setOnlineDurakState(null);
+    setOnlineHoldemState(null);
     setSandboxState(null);
     setSandboxDurakState(null);
+    setSandboxHoldemState(null);
   };
 
   const handleStartSandbox = (count: 2 | 3 | 4 | 5 | 6) => {
@@ -206,6 +228,8 @@ export const App: React.FC = () => {
     }));
     if (selectedGameType === 'durak') {
       setSandboxDurakState(createDurakMatch(players, selectedDurakMode));
+    } else if (selectedGameType === 'holdem') {
+      setSandboxHoldemState(createHoldemMatch(players));
     } else {
       setSandboxState(createMatch(players));
     }
@@ -221,98 +245,198 @@ export const App: React.FC = () => {
     sendWs({ type: 'DURAK_ACTION', code: room.code, action });
   };
 
+  const handleOnlineHoldemAction = (action: HoldemAction) => {
+    if (!room) return;
+    sendWs({ type: 'HOLDEM_ACTION', code: room.code, action });
+  };
+
+  const inviteBanner = roomInvite ? (
+    <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[60] w-[92%] max-w-sm rounded-2xl bg-[#0e2f1d] border border-amber-400/60 px-3.5 py-2.5 shadow-2xl flex items-center justify-between gap-2">
+      <div className="text-xs text-white min-w-0">
+        <span className="font-bold text-amber-300">{roomInvite.fromName}</span> кличе в кімнату{' '}
+        <span className="font-extrabold">{roomInvite.code}</span>
+      </div>
+      <div className="flex items-center gap-1.5 shrink-0">
+        <button
+          type="button"
+          onClick={() => handleJoinRoom(roomInvite.code)}
+          className="px-3 py-1 rounded-lg bg-amber-400 text-slate-950 font-extrabold text-xs"
+        >
+          Зайти
+        </button>
+        <button
+          type="button"
+          onClick={() => setRoomInvite(null)}
+          className="px-2 py-1 rounded-lg bg-white/10 text-white/75 text-xs"
+        >
+          ✕
+        </button>
+      </div>
+    </div>
+  ) : null;
+
+  if (sandboxHoldemState) {
+    return (
+      <>
+        {inviteBanner}
+        <HoldemTable
+          state={sandboxHoldemState}
+          myPlayerId={sandboxHoldemState.players[sandboxHoldemState.currentPlayerIndex].id}
+          isSandbox
+          onAction={(action) =>
+            setSandboxHoldemState((prev) => (prev ? applyHoldemAction(prev, action) : null))
+          }
+          onLeave={() => setSandboxHoldemState(null)}
+        />
+      </>
+    );
+  }
+
   if (sandboxDurakState) {
     return (
-      <DurakTable
-        state={sandboxDurakState}
-        myPlayerId={sandboxDurakState.players[sandboxDurakState.attackerIndex].id}
-        isSandbox
-        onAction={(action) =>
-          setSandboxDurakState((prev) => (prev ? applyDurakAction(prev, action) : null))
-        }
-        onLeave={() => setSandboxDurakState(null)}
-      />
+      <>
+        {inviteBanner}
+        <DurakTable
+          state={sandboxDurakState}
+          myPlayerId={sandboxDurakState.players[sandboxDurakState.attackerIndex].id}
+          isSandbox
+          onAction={(action) =>
+            setSandboxDurakState((prev) => (prev ? applyDurakAction(prev, action) : null))
+          }
+          onLeave={() => setSandboxDurakState(null)}
+        />
+      </>
     );
   }
 
   if (sandboxState) {
     return (
-      <GameTable
-        state={sandboxState}
-        myPlayerId={sandboxState.players[sandboxState.currentPlayerIndex].id}
-        isSandbox
-        onAction={(action) =>
-          setSandboxState((prev) => (prev ? applyAction(prev, action) : null))
-        }
-        onLeave={() => setSandboxState(null)}
-      />
+      <>
+        {inviteBanner}
+        <GameTable
+          state={sandboxState}
+          myPlayerId={sandboxState.players[sandboxState.currentPlayerIndex].id}
+          isSandbox
+          onAction={(action) =>
+            setSandboxState((prev) => (prev ? applyAction(prev, action) : null))
+          }
+          onLeave={() => setSandboxState(null)}
+        />
+      </>
+    );
+  }
+
+  if (onlineHoldemState && room) {
+    return (
+      <>
+        {inviteBanner}
+        <HoldemTable
+          state={onlineHoldemState}
+          myPlayerId={playerId}
+          isSandbox={false}
+          roomCode={room.code}
+          onAction={handleOnlineHoldemAction}
+          onLeave={handleLeaveRoom}
+        />
+      </>
     );
   }
 
   if (onlineDurakState && room) {
     return (
-      <DurakTable
-        state={onlineDurakState}
-        myPlayerId={playerId}
-        isSandbox={false}
-        roomCode={room.code}
-        onAction={handleOnlineDurakAction}
-        onLeave={handleLeaveRoom}
-      />
+      <>
+        {inviteBanner}
+        <DurakTable
+          state={onlineDurakState}
+          myPlayerId={playerId}
+          isSandbox={false}
+          roomCode={room.code}
+          onAction={handleOnlineDurakAction}
+          onLeave={handleLeaveRoom}
+        />
+      </>
     );
   }
 
   if (onlineState && room) {
     return (
-      <GameTable
-        state={onlineState}
-        myPlayerId={playerId}
-        isSandbox={false}
-        roomCode={room.code}
-        onAction={handleOnlineAction}
-        onLeave={handleLeaveRoom}
-      />
+      <>
+        {inviteBanner}
+        <GameTable
+          state={onlineState}
+          myPlayerId={playerId}
+          isSandbox={false}
+          roomCode={room.code}
+          onAction={handleOnlineAction}
+          onLeave={handleLeaveRoom}
+        />
+      </>
     );
   }
 
   return (
-    <LobbyScreen
-      playerName={playerName}
-      onChangeName={handleNameChange}
-      room={room}
-      connected={wsConnected}
-      error={error}
-      initialJoinCode={initialRoomCode}
-      wallet={wallet}
-      leaderboard={leaderboard}
-      adminWallets={adminWallets}
-      selectedGameType={selectedGameType}
-      selectedDurakMode={selectedDurakMode}
-      onSelectGameType={setSelectedGameType}
-      onSelectDurakMode={setSelectedDurakMode}
-      onSetRoomGame={handleSetRoomGame}
-      onClaimBonus={() => sendWs({ type: 'CLAIM_BONUS', playerId, playerName })}
-      onFetchLeaderboard={() => sendWs({ type: 'GET_LEADERBOARD' })}
-      onFetchAdminWallets={() =>
-        sendWs({ type: 'ADMIN_GET_WALLETS', adminPlayerId: playerId })
-      }
-      onAdminAdjustChips={(targetId, delta) =>
-        sendWs({
-          type: 'ADMIN_ADJUST_CHIPS',
-          adminPlayerId: playerId,
-          targetId,
-          delta,
-        })
-      }
-      onCreateRoom={handleCreateRoom}
-      onJoinRoom={handleJoinRoom}
-      onAddBot={handleAddBot}
-      onRemoveBot={handleRemoveBot}
-      onStartOnlineGame={handleStartOnlineGame}
-      onLeaveRoom={handleLeaveRoom}
-      onStartSandbox={handleStartSandbox}
-      currentPlayerId={playerId}
-    />
+    <>
+      {inviteBanner}
+      <LobbyScreen
+        playerName={playerName}
+        onChangeName={handleNameChange}
+        room={room}
+        connected={wsConnected}
+        error={error}
+        initialJoinCode={initialRoomCode}
+        wallet={wallet}
+        leaderboard={leaderboard}
+        adminWallets={adminWallets}
+        friends={friends}
+        incomingRequests={incomingRequests}
+        selectedGameType={selectedGameType}
+        selectedDurakMode={selectedDurakMode}
+        onSelectGameType={setSelectedGameType}
+        onSelectDurakMode={setSelectedDurakMode}
+        onSetRoomGame={handleSetRoomGame}
+        onClaimBonus={() => sendWs({ type: 'CLAIM_BONUS', playerId, playerName })}
+        onFetchLeaderboard={() => sendWs({ type: 'GET_LEADERBOARD' })}
+        onFetchAdminWallets={() =>
+          sendWs({ type: 'ADMIN_GET_WALLETS', adminPlayerId: playerId })
+        }
+        onAdminAdjustChips={(targetId, delta) =>
+          sendWs({
+            type: 'ADMIN_ADJUST_CHIPS',
+            adminPlayerId: playerId,
+            targetId,
+            delta,
+          })
+        }
+        onSendFriendRequest={(targetId) =>
+          sendWs({
+            type: 'SEND_FRIEND_REQUEST',
+            fromId: playerId,
+            fromName: playerName,
+            targetId,
+          })
+        }
+        onRespondFriendRequest={(fromId, accept) =>
+          sendWs({ type: 'RESPOND_FRIEND_REQUEST', playerId, fromId, accept })
+        }
+        onInviteFriend={(friendId, code) =>
+          sendWs({
+            type: 'INVITE_FRIEND_TO_ROOM',
+            fromId: playerId,
+            fromName: playerName,
+            friendId,
+            code,
+          })
+        }
+        onCreateRoom={handleCreateRoom}
+        onJoinRoom={handleJoinRoom}
+        onAddBot={handleAddBot}
+        onRemoveBot={handleRemoveBot}
+        onStartOnlineGame={handleStartOnlineGame}
+        onLeaveRoom={handleLeaveRoom}
+        onStartSandbox={handleStartSandbox}
+        currentPlayerId={playerId}
+      />
+    </>
   );
 };
 
