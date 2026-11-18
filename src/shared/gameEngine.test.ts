@@ -269,9 +269,9 @@ describe('gameEngine', () => {
     expect(afterJack.players[1].score).toBe(0); // 125 reset to 0
     expect(afterJack.phase).toBe('round_over');
 
-    // Reshuffle multiplier (2 reshuffles -> 2x penalty points)
+    // Reshuffle multiplier (1 reshuffle -> 2x, 2 reshuffles -> 3x penalty points)
     const reshuffleState = makeTestState({
-      reshuffleCount: 2,
+      reshuffleCount: 1,
       players: [
         { id: 'p1', name: 'P1', hand: [c('9', 'spades')], score: 0, connected: true },
         { id: 'p2', name: 'P2', hand: [c('Q', 'hearts')], score: 0, connected: true }, // 10 * 2 = 20
@@ -283,6 +283,20 @@ describe('gameEngine', () => {
       cardIds: ['9_spades'],
     });
     expect(afterReshuffle.players[1].score).toBe(20);
+
+    const reshuffle2State = makeTestState({
+      reshuffleCount: 2,
+      players: [
+        { id: 'p1', name: 'P1', hand: [c('9', 'spades')], score: 0, connected: true },
+        { id: 'p2', name: 'P2', hand: [c('Q', 'hearts')], score: 0, connected: true }, // 10 * 3 = 30
+      ],
+    });
+    const afterReshuffle2 = applyAction(reshuffle2State, {
+      type: 'PLAY_CARDS',
+      playerId: 'p1',
+      cardIds: ['9_spades'],
+    });
+    expect(afterReshuffle2.players[1].score).toBe(30);
 
     // Elimination in 3-player game: 1 eliminated -> round_over, next round deals only to 2 alive
     const elimState = makeTestState({

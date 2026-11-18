@@ -213,6 +213,7 @@ function schedulePublicTurnTimeout(room: Room): void {
       st.phase !== 'playing' &&
       st.phase !== 'must_cover_six' &&
       st.phase !== 'choosing_suit' &&
+      st.phase !== 'queen_spades_choice' &&
       st.phase !== 'bridge_choice'
     ) {
       return;
@@ -231,6 +232,12 @@ function schedulePublicTurnTimeout(room: Room): void {
         room.gameState = applyAction(cur, { type: 'DECLINE_BRIDGE', playerId: curP.id });
       } else if (cur.phase === 'choosing_suit') {
         room.gameState = applyAction(cur, { type: 'CHOOSE_SUIT', playerId: curP.id, suit: 'spades' });
+      } else if (cur.phase === 'queen_spades_choice') {
+        room.gameState = applyAction(cur, {
+          type: 'CHOOSE_QUEEN_SPADES',
+          playerId: curP.id,
+          option: 'take5_skip',
+        });
       } else if (cur.phase === 'playing' && cur.hasDrawnThisTurn) {
         room.gameState = applyAction(cur, { type: 'PASS_TURN', playerId: curP.id });
       } else {
@@ -298,6 +305,7 @@ function scheduleBotTurnIfNeeded(room: Room): void {
     state.phase !== 'playing' &&
     state.phase !== 'must_cover_six' &&
     state.phase !== 'choosing_suit' &&
+    state.phase !== 'queen_spades_choice' &&
     state.phase !== 'bridge_choice'
   ) {
     return;

@@ -283,7 +283,7 @@ function finalizeRound(
   const totals: Record<string, number> = {};
   const resetToZeroPlayerIds: string[] = [];
   const newlyEliminatedIds: string[] = [];
-  const multiplier = Math.max(1, state.reshuffleCount ?? 0);
+  const multiplier = 1 + (state.reshuffleCount ?? 0);
 
   const endedWithJack =
     mode === 'classic' &&
@@ -1029,7 +1029,7 @@ export function applyAction(
       if (res.reshuffled) {
         logs.push(
           makeLog(
-            `Колоду перетасовано (${reshuffleCount}x множник очок)!`,
+            `Колоду перетасовано (${1 + reshuffleCount}x множник очок)!`,
             'special',
           ),
         );
