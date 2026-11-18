@@ -319,6 +319,12 @@ function broadcastGameState(room: Room): void {
 
 const PORT = Number(process.env.PORT) || 8080;
 const DIST_DIR = resolve(process.cwd(), 'dist');
+const BOT_TOKEN = process.env.BOT_TOKEN?.trim();
+const PUBLIC_URL =
+  process.env.APP_URL?.replace(/\/+$/, '') ||
+  (process.env.RENDER_EXTERNAL_HOSTNAME
+    ? `https://${process.env.RENDER_EXTERNAL_HOSTNAME}`
+    : 'https://dvorovyi-bridge.onrender.com');
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -332,6 +338,42 @@ const MIME_TYPES: Record<string, string> = {
 
 const httpServer = createServer((req, res) => {
   const reqPath = (req.url || '/').split('?')[0];
+
+  if (reqPath === '/tg-webhook' && req.method === 'POST' && BOT_TOKEN) {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
+    req.on('end', () => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+      try {
+        const update = JSON.parse(body) as {
+          message?: { chat?: { id?: number }; text?: string };
+        };
+        const chatId = update.message?.chat?.id;
+        const text = update.message?.text || '';
+        if (chatId && text.startsWith('/start')) {
+          void fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: 'Привіт! 🃏 Натисни кнопку нижче, щоб відкрити «Карасьовий Брідж» (Брідж, Дурак, Покер та Слот):',
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '🎮 Грати зараз', web_app: { url: PUBLIC_URL } }],
+                ],
+              },
+            }),
+          });
+        }
+      } catch {
+        // Ignore malformed webhook payload
+      }
+    });
+    return;
+  }
 
   if (reqPath === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -797,4 +839,11 @@ function handleDisconnect(ws: WebSocket, explicitLeave: boolean): void {
 
 httpServer.listen(PORT, () => {
   console.log(`Dvorovyi Bridge WS server listening on http://localhost:${PORT}`);
+  if (BOT_TOKEN) {
+    void fetch(`https://api.telegram.org/bot${BOT_TOKEN}/setWebhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: `${PUBLIC_URL}/tg-webhook` }),
+    }).catch(() => {});
+  }
 });

@@ -172,9 +172,7 @@ export function isCardPlayable(card: Card, state: GameState): boolean {
   if (!topCard) return false;
 
   if (state.phase === 'must_cover_six') {
-    // Jack cannot be placed on an uncovered 6
-    if (card.rank === 'J') return false;
-    return card.rank === '6' || card.suit === state.activeSuit;
+    return card.rank === 'J' || card.rank === '6' || card.suit === state.activeSuit;
   }
 
   // Normal 'playing' phase

@@ -91,8 +91,8 @@ describe('gameEngine', () => {
     expect(s1.phase).toBe('must_cover_six');
     expect(s1.currentPlayerIndex).toBe(0);
 
-    // Jack cannot cover an uncovered 6
-    expect(isCardPlayable(c('J', 'spades'), s1)).toBe(false);
+    // Jack can cover an uncovered 6
+    expect(isCardPlayable(c('J', 'clubs'), s1)).toBe(true);
 
     // Cover 6♠ with 10♠ -> player 1 wins round
     const s2 = applyAction(s1, { type: 'PLAY_CARDS', playerId: 'p1', cardIds: ['10_spades'] });

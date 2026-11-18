@@ -337,7 +337,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                           : 'bg-white/10 text-white/75'
                       }`}
                     >
-                      Холдем
+                      Покер
                     </button>
                   </div>
                 ) : (
@@ -345,7 +345,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                     {room.gameType === 'durak'
                       ? `Дурак (${room.durakMode === 'perevodnoy' ? 'Перевідний' : 'Підкидний'})`
                       : room.gameType === 'holdem'
-                        ? 'Техаський Холдем'
+                        ? 'Покер'
                         : 'Карасьовий Брідж'}
                   </span>
                 )}
@@ -515,8 +515,8 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   }
 
   return (
-    <div className="min-h-full felt-table flex flex-col items-center justify-center p-4 safe-top safe-bottom overflow-y-auto">
-      <div className="w-full max-w-sm space-y-4">
+    <div className="h-full felt-table flex flex-col items-center justify-start sm:justify-center p-3 sm:p-4 safe-top safe-bottom overflow-y-auto">
+      <div className="w-full max-w-sm space-y-2.5 sm:space-y-3.5 pb-4">
         {/* Header */}
         <div className="text-center space-y-1">
           <div className="flex items-center justify-center gap-2">
@@ -595,7 +595,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             {selectedGameType === 'durak'
               ? `Дурак (${selectedDurakMode === 'perevodnoy' ? 'Перевідний' : 'Підкидний'}) • 2–6 гравців`
               : selectedGameType === 'holdem'
-                ? 'Техаський Холдем на фішки • 2–6 гравців'
+                ? 'Покер на фішки • 2–6 гравців'
                 : 'Гра до 125 очок • 2–6 гравців'}
           </p>
           <div className="flex items-center justify-center gap-1.5 pt-1">
@@ -630,7 +630,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                   : 'bg-white/10 text-white/75 hover:bg-white/20'
               }`}
             >
-              Холдем
+              Покер
             </button>
             {connected && (
               <button
@@ -801,7 +801,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                           {r.gameType === 'durak'
                             ? 'Дурак'
                             : r.gameType === 'holdem'
-                              ? 'Холдем'
+                              ? 'Покер'
                               : 'Брідж'}
                         </span>
                         {r.hasPassword && <Lock className="w-3 h-3 text-amber-300" />}
@@ -841,7 +841,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               {selectedGameType === 'durak'
                 ? 'Дурак'
                 : selectedGameType === 'holdem'
-                  ? 'Холдем'
+                  ? 'Покер'
                   : 'Брідж'}
               )
             </div>
@@ -863,7 +863,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             </div>
           </div>
           <p className="text-[11px] text-emerald-200/70">
-            Локальний стіл на 2–6 гравців з відкритими картами для тренування (Брідж, Дурак, Холдем — залежить від вибору гри зверху).
+            Локальний стіл на 2–6 гравців з відкритими картами для тренування (Брідж, Дурак, Покер — залежить від вибору гри зверху).
           </p>
           <button
             type="button"
@@ -874,7 +874,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             {selectedGameType === 'durak'
               ? 'Дурак'
               : selectedGameType === 'holdem'
-                ? 'Холдем'
+                ? 'Покер'
                 : 'Брідж'}{' '}
             ({sandboxCount} гравці)
           </button>

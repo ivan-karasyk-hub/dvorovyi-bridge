@@ -36,7 +36,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ onClose }) => {
             <p><b className="text-white">6</b> — потрібно одразу покрити тією ж мастю або іншою 6 (тягнути доки не покриєте). Не можна класти останньою картою.</p>
             <p><b className="text-white">7</b> — наступний гравець бере 2 карти і пропускає хід.</p>
             <p><b className="text-white">8</b> — наступний бере 1 карту і ходить.</p>
-            <p><b className="text-white">J (Валет)</b> — на будь-що (крім незакритої 6), замовляєте масть.</p>
+            <p><b className="text-white">J (Валет)</b> — на будь-що (навіть на незакриту 6), замовляєте масть.</p>
             <p><b className="text-white">K♠ (Король пік)</b> — наступний бере 4 карти і пропускає хід.</p>
             <p><b className="text-white">A (Туз)</b> — наступний пропускає хід (N тузів = N пропусків).</p>
           </div>

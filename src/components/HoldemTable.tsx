@@ -136,7 +136,7 @@ export const HoldemTable: React.FC<HoldemTableProps> = ({
           </button>
           <div>
             <div className="text-xs font-bold text-white flex items-center gap-1.5">
-              <span>Техаський Холдем</span>
+              <span>Покер</span>
               {roomCode && (
                 <span className="px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300 text-[10px] font-extrabold">
                   {roomCode}
