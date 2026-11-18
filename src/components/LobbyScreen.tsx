@@ -22,6 +22,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import type {
+  AdminRoomInfo,
   DurakMode,
   FriendEntry,
   FriendRequestEntry,
@@ -42,6 +43,7 @@ interface LobbyScreenProps {
   wallet: WalletSummary | null;
   leaderboard: WalletSummary[];
   adminWallets: WalletSummary[];
+  adminRooms: AdminRoomInfo[];
   friends: FriendEntry[];
   incomingRequests: FriendRequestEntry[];
   publicRooms: PublicRoomSummary[];
@@ -54,6 +56,9 @@ interface LobbyScreenProps {
   onFetchLeaderboard: () => void;
   onFetchAdminWallets: () => void;
   onAdminAdjustChips: (targetId: string, delta: number) => void;
+  onAdminCloseRoom: (code: string) => void;
+  onAdminKickPlayer: (code: string, targetId: string) => void;
+  onAdminBroadcast: (message: string) => void;
   onSendFriendRequest: (targetId: string) => void;
   onRespondFriendRequest: (fromId: string, accept: boolean) => void;
   onInviteFriend: (friendId: string, code: string) => void;
@@ -79,6 +84,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   wallet,
   leaderboard,
   adminWallets,
+  adminRooms,
   friends,
   incomingRequests,
   publicRooms,
@@ -91,6 +97,9 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   onFetchLeaderboard,
   onFetchAdminWallets,
   onAdminAdjustChips,
+  onAdminCloseRoom,
+  onAdminKickPlayer,
+  onAdminBroadcast,
   onSendFriendRequest,
   onRespondFriendRequest,
   onInviteFriend,
@@ -115,8 +124,10 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   const [friendTargetId, setFriendTargetId] = useState('');
   const [invitedFriendIds, setInvitedFriendIds] = useState<string[]>([]);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [adminTab, setAdminTab] = useState<'chips' | 'rooms' | 'notice'>('chips');
   const [adminTargetId, setAdminTargetId] = useState('');
   const [adminDelta, setAdminDelta] = useState('1000');
+  const [adminNoticeText, setAdminNoticeText] = useState('');
 
   const handleCopyInvite = async () => {
     if (!room) return;
@@ -930,11 +941,11 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
       {/* Admin Modal */}
       {showAdmin && wallet?.isAdmin && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-sm rounded-3xl bg-[#0b2919] border border-rose-400/40 p-5 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between">
+          <div className="w-full max-w-sm max-h-[85dvh] flex flex-col rounded-3xl bg-[#0b2919] border border-rose-400/40 p-5 shadow-2xl space-y-3">
+            <div className="flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
                 <ShieldAlert className="w-5 h-5 text-rose-400" />
-                <h3 className="font-bold text-white">Адмін-панель фішок</h3>
+                <h3 className="font-bold text-white">Адмін-панель</h3>
               </div>
               <button
                 type="button"
@@ -945,71 +956,197 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               </button>
             </div>
 
-            <div className="space-y-2">
-              <label className="block text-[11px] text-emerald-200/80">
-                Telegram ID (наприклад `123456789` або `tg_123456789`):
-              </label>
-              <input
-                type="text"
-                value={adminTargetId}
-                onChange={(e) => setAdminTargetId(e.target.value)}
-                placeholder="Введіть TG ID..."
-                className="w-full px-3 py-2 rounded-xl bg-white/10 border border-white/15 text-xs text-white placeholder-white/40 focus:outline-none focus:border-rose-400"
-              />
-              <div className="flex gap-2">
-                <input
-                  type="number"
-                  value={adminDelta}
-                  onChange={(e) => setAdminDelta(e.target.value)}
-                  placeholder="Сума"
-                  className="w-28 px-3 py-2 rounded-xl bg-white/10 border border-white/15 text-xs text-white focus:outline-none focus:border-rose-400"
+            {/* Admin Tabs */}
+            <div className="flex gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => setAdminTab('chips')}
+                className={`flex-1 py-1.5 rounded-xl text-xs font-bold ${
+                  adminTab === 'chips'
+                    ? 'bg-rose-500 text-white'
+                    : 'bg-white/10 text-white/75'
+                }`}
+              >
+                🪙 Фішки
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onFetchAdminWallets();
+                  setAdminTab('rooms');
+                }}
+                className={`flex-1 py-1.5 rounded-xl text-xs font-bold ${
+                  adminTab === 'rooms'
+                    ? 'bg-rose-500 text-white'
+                    : 'bg-white/10 text-white/75'
+                }`}
+              >
+                🚪 Кімнати ({adminRooms.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setAdminTab('notice')}
+                className={`flex-1 py-1.5 rounded-xl text-xs font-bold ${
+                  adminTab === 'notice'
+                    ? 'bg-rose-500 text-white'
+                    : 'bg-white/10 text-white/75'
+                }`}
+              >
+                📢 Всім
+              </button>
+            </div>
+
+            {adminTab === 'chips' && (
+              <div className="space-y-3 overflow-y-auto">
+                <div className="space-y-2">
+                  <label className="block text-[11px] text-emerald-200/80">
+                    Telegram ID (напр. `123456789` або `tg_123456789`):
+                  </label>
+                  <input
+                    type="text"
+                    value={adminTargetId}
+                    onChange={(e) => setAdminTargetId(e.target.value)}
+                    placeholder="Введіть TG ID..."
+                    className="w-full px-3 py-2 rounded-xl bg-white/10 border border-white/15 text-xs text-white placeholder-white/40 focus:outline-none focus:border-rose-400"
+                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      value={adminDelta}
+                      onChange={(e) => setAdminDelta(e.target.value)}
+                      placeholder="Сума"
+                      className="w-28 px-3 py-2 rounded-xl bg-white/10 border border-white/15 text-xs text-white focus:outline-none focus:border-rose-400"
+                    />
+                    <button
+                      type="button"
+                      disabled={!adminTargetId.trim() || !Number.isFinite(Number(adminDelta))}
+                      onClick={() => {
+                        onAdminAdjustChips(adminTargetId.trim(), Number(adminDelta));
+                      }}
+                      className="flex-1 py-2 rounded-xl bg-rose-500 hover:bg-rose-400 disabled:opacity-40 text-white font-bold text-xs active:scale-95 transition"
+                    >
+                      Нарахувати
+                    </button>
+                  </div>
+                  <div className="flex gap-1.5">
+                    {[500, 1000, 5000, -500].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setAdminDelta(String(preset))}
+                        className="flex-1 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] font-bold text-white/85"
+                      >
+                        {preset > 0 ? `+${preset}` : preset}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5 max-h-48 overflow-y-auto pt-1 border-t border-white/10">
+                  <div className="text-[10px] text-emerald-200/70">
+                    Гравці (натисни, щоб обрати):
+                  </div>
+                  {adminWallets.map((w) => (
+                    <button
+                      key={w.playerId}
+                      type="button"
+                      onClick={() => setAdminTargetId(w.playerId)}
+                      className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-semibold text-white truncate">{w.name}</div>
+                        <div className="text-[10px] text-white/50 truncate">{w.playerId}</div>
+                      </div>
+                      <div className="font-extrabold text-amber-300 shrink-0 ml-2">
+                        {w.chips}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {adminTab === 'rooms' && (
+              <div className="space-y-2 overflow-y-auto max-h-80">
+                {adminRooms.length === 0 ? (
+                  <p className="text-xs text-center text-white/50 py-6">
+                    Наразі немає активних кімнат
+                  </p>
+                ) : (
+                  adminRooms.map((r) => (
+                    <div
+                      key={r.code}
+                      className="rounded-xl bg-white/5 border border-white/10 p-3 space-y-2 text-xs"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="font-bold text-white">
+                          <span className="text-amber-300">{r.code}</span> •{' '}
+                          {r.gameType === 'durak'
+                            ? 'Дурак'
+                            : r.gameType === 'holdem'
+                              ? 'Покер'
+                              : 'Брідж'}{' '}
+                          {r.hasPassword ? '🔒' : r.isPublic ? '🌐' : '🔑'}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => onAdminCloseRoom(r.code)}
+                          className="px-2.5 py-1 rounded-lg bg-rose-500/80 hover:bg-rose-500 text-white text-[11px] font-bold"
+                        >
+                          Закрити
+                        </button>
+                      </div>
+                      <div className="space-y-1">
+                        {r.players.map((p) => (
+                          <div
+                            key={p.id}
+                            className="flex items-center justify-between px-2 py-1 rounded-lg bg-black/25 text-[11px]"
+                          >
+                            <span className="text-white/90 truncate">
+                              {p.isBot ? '🤖 ' : ''}
+                              {p.name}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => onAdminKickPlayer(r.code, p.id)}
+                              className="px-2 py-0.5 rounded bg-white/10 hover:bg-rose-500/50 text-rose-200 text-[10px] font-bold"
+                            >
+                              Кікнути
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {adminTab === 'notice' && (
+              <div className="space-y-3">
+                <p className="text-[11px] text-emerald-200/80">
+                  Надіслати спливаюче оголошення всім гравцям, які зараз онлайн:
+                </p>
+                <textarea
+                  rows={3}
+                  value={adminNoticeText}
+                  onChange={(e) => setAdminNoticeText(e.target.value)}
+                  placeholder="Наприклад: Турнір з покеру через 5 хвилин!"
+                  className="w-full px-3 py-2 rounded-xl bg-white/10 border border-white/15 text-xs text-white placeholder-white/40 focus:outline-none focus:border-rose-400"
                 />
                 <button
                   type="button"
-                  disabled={!adminTargetId.trim() || !Number.isFinite(Number(adminDelta))}
+                  disabled={!adminNoticeText.trim()}
                   onClick={() => {
-                    onAdminAdjustChips(adminTargetId.trim(), Number(adminDelta));
+                    onAdminBroadcast(adminNoticeText.trim());
+                    setAdminNoticeText('');
                   }}
-                  className="flex-1 py-2 rounded-xl bg-rose-500 hover:bg-rose-400 disabled:opacity-40 text-white font-bold text-xs active:scale-95 transition"
+                  className="w-full py-2.5 rounded-xl bg-rose-500 hover:bg-rose-400 disabled:opacity-40 text-white font-bold text-xs"
                 >
-                  Нарахувати
+                  Надіслати всім онлайн
                 </button>
               </div>
-              <div className="flex gap-1.5">
-                {[500, 1000, 5000, -500].map((preset) => (
-                  <button
-                    key={preset}
-                    type="button"
-                    onClick={() => setAdminDelta(String(preset))}
-                    className="flex-1 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] font-bold text-white/85"
-                  >
-                    {preset > 0 ? `+${preset}` : preset}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-1.5 max-h-48 overflow-y-auto pt-1 border-t border-white/10">
-              <div className="text-[10px] text-emerald-200/70">
-                Гравці (натисни, щоб обрати):
-              </div>
-              {adminWallets.map((w) => (
-                <button
-                  key={w.playerId}
-                  type="button"
-                  onClick={() => setAdminTargetId(w.playerId)}
-                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left text-xs"
-                >
-                  <div className="min-w-0">
-                    <div className="font-semibold text-white truncate">{w.name}</div>
-                    <div className="text-[10px] text-white/50 truncate">{w.playerId}</div>
-                  </div>
-                  <div className="font-extrabold text-amber-300 shrink-0 ml-2">
-                    {w.chips}
-                  </div>
-                </button>
-              ))}
-            </div>
+            )}
           </div>
         </div>
       )}

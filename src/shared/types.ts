@@ -217,6 +217,15 @@ export type DurakAction =
   | { type: 'TAKE_CARDS'; playerId: string }
   | { type: 'NEW_DURAK_GAME'; playerId: string };
 
+export interface AdminRoomInfo {
+  code: string;
+  gameType: GameType;
+  isPublic: boolean;
+  hasPassword: boolean;
+  started: boolean;
+  players: RoomPlayerInfo[];
+}
+
 export interface PublicRoomSummary {
   code: string;
   gameType: GameType;
@@ -294,10 +303,15 @@ export type ClientMessage =
   | { type: 'BUY_SLOT_BONUS'; playerId: string; playerName: string; bet: number }
   | { type: 'ADMIN_GET_WALLETS'; adminPlayerId: string }
   | { type: 'ADMIN_ADJUST_CHIPS'; adminPlayerId: string; targetId: string; delta: number }
+  | { type: 'ADMIN_GET_ROOMS'; adminPlayerId: string }
+  | { type: 'ADMIN_CLOSE_ROOM'; adminPlayerId: string; code: string }
+  | { type: 'ADMIN_KICK_PLAYER'; adminPlayerId: string; code: string; targetId: string }
+  | { type: 'ADMIN_BROADCAST'; adminPlayerId: string; message: string }
   | { type: 'LEAVE_ROOM'; code: string; playerId: string };
 
 export type ServerMessage =
   | { type: 'ROOM_STATE'; room: RoomInfo }
+  | { type: 'ROOM_CLOSED'; reason: string }
   | { type: 'PUBLIC_ROOMS'; rooms: PublicRoomSummary[] }
   | { type: 'GAME_STATE'; state: GameState }
   | { type: 'DURAK_STATE'; state: DurakState }
@@ -308,4 +322,6 @@ export type ServerMessage =
   | { type: 'FRIENDS_STATE'; friends: FriendEntry[]; incomingRequests: FriendRequestEntry[] }
   | { type: 'ROOM_INVITE'; invite: InGameRoomInvite }
   | { type: 'ADMIN_WALLETS'; entries: WalletSummary[] }
+  | { type: 'ADMIN_ROOMS'; rooms: AdminRoomInfo[] }
+  | { type: 'ADMIN_NOTICE'; message: string }
   | { type: 'ERROR'; message: string };

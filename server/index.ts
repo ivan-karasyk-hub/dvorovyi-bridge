@@ -32,6 +32,7 @@ import {
   normalizeTargetPlayerId,
 } from './wallet';
 import type {
+  AdminRoomInfo,
   ClientMessage,
   DurakMode,
   DurakState,
@@ -764,6 +765,22 @@ wss.on('connection', (ws) => {
         break;
       }
 
+function getAdminRoomsList(): AdminRoomInfo[] {
+  const list: AdminRoomInfo[] = [];
+  for (const room of rooms.values()) {
+    list.push({
+      code: room.code,
+      gameType: room.gameType,
+      isPublic: room.isPublic,
+      hasPassword: Boolean(room.password),
+      started:
+        room.gameState !== null || room.durakState !== null || room.holdemState !== null,
+      players: room.players,
+    });
+  }
+  return list;
+}
+
       case 'ADMIN_ADJUST_CHIPS': {
         if (!isAdminPlayer(msg.adminPlayerId)) return;
         const targetId = normalizeTargetPlayerId(msg.targetId);
@@ -782,6 +799,71 @@ wss.on('connection', (ws) => {
             send(ws, { type: 'ADMIN_WALLETS', entries });
           });
         });
+        break;
+      }
+
+      case 'ADMIN_GET_ROOMS': {
+        if (!isAdminPlayer(msg.adminPlayerId)) return;
+        send(ws, { type: 'ADMIN_ROOMS', rooms: getAdminRoomsList() });
+        break;
+      }
+
+      case 'ADMIN_CLOSE_ROOM': {
+        if (!isAdminPlayer(msg.adminPlayerId)) return;
+        const room = rooms.get(msg.code);
+        if (!room) return;
+        clearBotTimer(room);
+        for (const [, clientWs] of room.sockets) {
+          socketToPlayer.delete(clientWs);
+          send(clientWs, { type: 'ROOM_CLOSED', reason: 'Кімнату закрито адміністратором.' });
+        }
+        rooms.delete(msg.code);
+        broadcastPublicRooms();
+        send(ws, { type: 'ADMIN_ROOMS', rooms: getAdminRoomsList() });
+        break;
+      }
+
+      case 'ADMIN_KICK_PLAYER': {
+        if (!isAdminPlayer(msg.adminPlayerId)) return;
+        const room = rooms.get(msg.code);
+        if (!room) return;
+        const targetWs = room.sockets.get(msg.targetId);
+        if (targetWs) {
+          room.sockets.delete(msg.targetId);
+          socketToPlayer.delete(targetWs);
+          send(targetWs, { type: 'ROOM_CLOSED', reason: 'Вас видалено з кімнати адміністратором.' });
+        }
+        room.players = room.players.filter((p) => p.id !== msg.targetId);
+        if (room.gameState) {
+          room.gameState = {
+            ...room.gameState,
+            players: room.gameState.players.map((p) =>
+              p.id === msg.targetId ? { ...p, eliminated: true, connected: false } : p,
+            ),
+            waitingPlayers: (room.gameState.waitingPlayers ?? []).filter(
+              (w) => w.id !== msg.targetId,
+            ),
+          };
+          broadcastGameState(room);
+        }
+        if (room.sockets.size === 0 || room.players.every((p) => p.isBot)) {
+          clearBotTimer(room);
+          rooms.delete(msg.code);
+        } else {
+          broadcastRoom(room);
+        }
+        broadcastPublicRooms();
+        send(ws, { type: 'ADMIN_ROOMS', rooms: getAdminRoomsList() });
+        break;
+      }
+
+      case 'ADMIN_BROADCAST': {
+        if (!isAdminPlayer(msg.adminPlayerId)) return;
+        const text = msg.message.trim();
+        if (!text) return;
+        for (const clientWs of wss.clients) {
+          send(clientWs, { type: 'ADMIN_NOTICE', message: text });
+        }
         break;
       }
 
@@ -808,10 +890,13 @@ function handleDisconnect(ws: WebSocket, explicitLeave: boolean): void {
 
   room.sockets.delete(meta.playerId);
 
-  if (explicitLeave && !room.gameState) {
+  const hasGame = Boolean(room.gameState || room.durakState || room.holdemState);
+
+  if (explicitLeave && !hasGame) {
     room.players = room.players.filter((p) => p.id !== meta.playerId);
-    if (room.players.length > 0 && !room.players.some((p) => p.isHost)) {
-      room.players[0].isHost = true;
+    const nextHuman = room.players.find((p) => !p.isBot);
+    if (nextHuman && !room.players.some((p) => p.isHost)) {
+      nextHuman.isHost = true;
     }
   } else {
     const p = room.players.find((pl) => pl.id === meta.playerId);
@@ -827,14 +912,21 @@ function handleDisconnect(ws: WebSocket, explicitLeave: boolean): void {
     }
   }
 
+  const remainingHumansCount = room.players.filter((p) => !p.isBot).length;
+  // Close room immediately if no live humans are connected and only bots/1 human remain
+  if (room.sockets.size === 0 && (explicitLeave || !hasGame || remainingHumansCount <= 1)) {
+    clearBotTimer(room);
+    rooms.delete(meta.code);
+    broadcastPublicRooms();
+    return;
+  }
+
   if (room.sockets.size === 0) {
     clearBotTimer(room);
-    if (!room.gameState) {
-      rooms.delete(meta.code);
-    }
   } else {
     broadcastRoom(room);
   }
+  broadcastPublicRooms();
 }
 
 httpServer.listen(PORT, () => {

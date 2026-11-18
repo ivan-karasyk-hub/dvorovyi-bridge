@@ -3,6 +3,7 @@ import { applyAction, createMatch } from './shared/gameEngine';
 import { applyDurakAction, createDurakMatch } from './shared/durakEngine';
 import { applyHoldemAction, createHoldemMatch } from './shared/holdemEngine';
 import type {
+  AdminRoomInfo,
   ClientMessage,
   DurakAction,
   DurakMode,
@@ -63,6 +64,8 @@ export const App: React.FC = () => {
   const [wallet, setWallet] = useState<WalletSummary | null>(null);
   const [leaderboard, setLeaderboard] = useState<WalletSummary[]>([]);
   const [adminWallets, setAdminWallets] = useState<WalletSummary[]>([]);
+  const [adminRooms, setAdminRooms] = useState<AdminRoomInfo[]>([]);
+  const [adminNotice, setAdminNotice] = useState<string | null>(null);
   const [friends, setFriends] = useState<FriendEntry[]>([]);
   const [incomingRequests, setIncomingRequests] = useState<FriendRequestEntry[]>([]);
   const [publicRooms, setPublicRooms] = useState<PublicRoomSummary[]>([]);
@@ -147,6 +150,17 @@ export const App: React.FC = () => {
             setLeaderboard(msg.entries);
           } else if (msg.type === 'ADMIN_WALLETS') {
             setAdminWallets(msg.entries);
+          } else if (msg.type === 'ADMIN_ROOMS') {
+            setAdminRooms(msg.rooms);
+          } else if (msg.type === 'ROOM_CLOSED') {
+            setRoom(null);
+            setOnlineState(null);
+            setOnlineDurakState(null);
+            setOnlineHoldemState(null);
+            setError(msg.reason);
+          } else if (msg.type === 'ADMIN_NOTICE') {
+            setAdminNotice(msg.message);
+            window.setTimeout(() => setAdminNotice(null), 6000);
           } else if (msg.type === 'FRIENDS_STATE') {
             setFriends(msg.friends);
             setIncomingRequests(msg.incomingRequests);
@@ -262,30 +276,49 @@ export const App: React.FC = () => {
     sendWs({ type: 'HOLDEM_ACTION', code: room.code, action });
   };
 
-  const inviteBanner = roomInvite ? (
-    <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[60] w-[92%] max-w-sm rounded-2xl bg-[#0e2f1d] border border-amber-400/60 px-3.5 py-2.5 shadow-2xl flex items-center justify-between gap-2">
-      <div className="text-xs text-white min-w-0">
-        <span className="font-bold text-amber-300">{roomInvite.fromName}</span> кличе в кімнату{' '}
-        <span className="font-extrabold">{roomInvite.code}</span>
-      </div>
-      <div className="flex items-center gap-1.5 shrink-0">
-        <button
-          type="button"
-          onClick={() => handleJoinRoom(roomInvite.code)}
-          className="px-3 py-1 rounded-lg bg-amber-400 text-slate-950 font-extrabold text-xs"
-        >
-          Зайти
-        </button>
-        <button
-          type="button"
-          onClick={() => setRoomInvite(null)}
-          className="px-2 py-1 rounded-lg bg-white/10 text-white/75 text-xs"
-        >
-          ✕
-        </button>
-      </div>
-    </div>
-  ) : null;
+  const inviteBanner = (
+    <>
+      {adminNotice && (
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[65] w-[92%] max-w-sm rounded-2xl bg-rose-950/95 border border-rose-400/60 px-3.5 py-2.5 shadow-2xl flex items-center justify-between gap-2 text-xs text-white">
+          <div>
+            <span className="font-extrabold text-rose-300">📢 Адмін: </span>
+            {adminNotice}
+          </div>
+          <button
+            type="button"
+            onClick={() => setAdminNotice(null)}
+            className="px-2 py-0.5 rounded bg-white/10 text-white/80"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      {roomInvite && (
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[60] w-[92%] max-w-sm rounded-2xl bg-[#0e2f1d] border border-amber-400/60 px-3.5 py-2.5 shadow-2xl flex items-center justify-between gap-2">
+          <div className="text-xs text-white min-w-0">
+            <span className="font-bold text-amber-300">{roomInvite.fromName}</span> кличе в кімнату{' '}
+            <span className="font-extrabold">{roomInvite.code}</span>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => handleJoinRoom(roomInvite.code)}
+              className="px-3 py-1 rounded-lg bg-amber-400 text-slate-950 font-extrabold text-xs"
+            >
+              Зайти
+            </button>
+            <button
+              type="button"
+              onClick={() => setRoomInvite(null)}
+              className="px-2 py-1 rounded-lg bg-white/10 text-white/75 text-xs"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
 
   if (sandboxHoldemState) {
     return (
@@ -399,6 +432,7 @@ export const App: React.FC = () => {
         wallet={wallet}
         leaderboard={leaderboard}
         adminWallets={adminWallets}
+        adminRooms={adminRooms}
         friends={friends}
         incomingRequests={incomingRequests}
         publicRooms={publicRooms}
@@ -409,9 +443,10 @@ export const App: React.FC = () => {
         onSetRoomGame={handleSetRoomGame}
         onClaimBonus={() => sendWs({ type: 'CLAIM_BONUS', playerId, playerName })}
         onFetchLeaderboard={() => sendWs({ type: 'GET_LEADERBOARD' })}
-        onFetchAdminWallets={() =>
-          sendWs({ type: 'ADMIN_GET_WALLETS', adminPlayerId: playerId })
-        }
+        onFetchAdminWallets={() => {
+          sendWs({ type: 'ADMIN_GET_WALLETS', adminPlayerId: playerId });
+          sendWs({ type: 'ADMIN_GET_ROOMS', adminPlayerId: playerId });
+        }}
         onAdminAdjustChips={(targetId, delta) =>
           sendWs({
             type: 'ADMIN_ADJUST_CHIPS',
@@ -419,6 +454,20 @@ export const App: React.FC = () => {
             targetId,
             delta,
           })
+        }
+        onAdminCloseRoom={(code) =>
+          sendWs({ type: 'ADMIN_CLOSE_ROOM', adminPlayerId: playerId, code })
+        }
+        onAdminKickPlayer={(code, targetId) =>
+          sendWs({
+            type: 'ADMIN_KICK_PLAYER',
+            adminPlayerId: playerId,
+            code,
+            targetId,
+          })
+        }
+        onAdminBroadcast={(message) =>
+          sendWs({ type: 'ADMIN_BROADCAST', adminPlayerId: playerId, message })
         }
         onSendFriendRequest={(targetId) =>
           sendWs({
