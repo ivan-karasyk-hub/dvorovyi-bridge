@@ -73,6 +73,15 @@ export const GameTable: React.FC<GameTableProps> = ({
   const [showRules, setShowRules] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [showChat, setShowChat] = useState(false);
+  const [lastReadChatLen, setLastReadChatLen] = useState(0);
+  const unreadChatCount = showChat
+    ? 0
+    : chatMessages.slice(lastReadChatLen).filter((m) => m.senderId !== myPlayerId).length;
+  useEffect(() => {
+    if (showChat) {
+      setLastReadChatLen(chatMessages.length);
+    }
+  }, [showChat, chatMessages.length]);
   const [inviteCopied, setInviteCopied] = useState(false);
   const [soundOn, setSoundOn] = useState(() => isSoundEnabled());
   const [sandboxRevealAll, setSandboxRevealAll] = useState(true);
@@ -255,10 +264,15 @@ export const GameTable: React.FC<GameTableProps> = ({
             <button
               type="button"
               onClick={() => setShowChat(true)}
-              className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-emerald-200 active:scale-95 transition"
+              className="relative p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-emerald-200 active:scale-95 transition"
               title="Чат кімнати"
             >
               <MessageCircle className="w-4 h-4" />
+              {unreadChatCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center shadow">
+                  {unreadChatCount}
+                </span>
+              )}
             </button>
           )}
           {roomCode &&
@@ -664,6 +678,55 @@ export const GameTable: React.FC<GameTableProps> = ({
                 className="w-full py-3 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white font-bold text-sm active:scale-95 transition"
               >
                 Взяти 8 карт і ходити
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Multiple 8s Split Choice Modal */}
+      {state.phase === 'eight_split_choice' && isMyTurn && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="w-full max-w-xs rounded-3xl bg-[#0e2f1d] border border-amber-400/50 p-5 shadow-2xl text-center space-y-4"
+          >
+            <div className="text-3xl">8️⃣✨</div>
+            <div>
+              <h3 className="text-xl font-black text-white">Кілька вісімок!</h3>
+              <p className="text-xs text-emerald-200/80 mt-1">
+                Ви поклали {state.lastPlayedCount ?? 2} вісімки (+{(state.lastPlayedCount ?? 2) * 2} карт). Як розподілити?
+              </p>
+            </div>
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic('medium');
+                  onAction({
+                    type: 'CHOOSE_EIGHT_SPLIT',
+                    playerId: southPlayer.id,
+                    mode: 'all_next',
+                  });
+                }}
+                className="w-full py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-sm shadow-lg active:scale-95 transition"
+              >
+                Усі +{(state.lastPlayedCount ?? 2) * 2} наступному
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic('medium');
+                  onAction({
+                    type: 'CHOOSE_EIGHT_SPLIT',
+                    playerId: southPlayer.id,
+                    mode: 'split_round',
+                  });
+                }}
+                className="w-full py-3 rounded-xl bg-emerald-500/85 hover:bg-emerald-400 text-slate-950 font-extrabold text-sm shadow-lg active:scale-95 transition"
+              >
+                Розділити по +2 наступним
               </button>
             </div>
           </motion.div>

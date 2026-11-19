@@ -60,6 +60,15 @@ export const HoldemTable: React.FC<HoldemTableProps> = ({
   const [showShowdownModal, setShowShowdownModal] = useState(false);
   const [flyingChips, setFlyingChips] = useState(false);
   const [showChat, setShowChat] = useState(false);
+  const [lastReadChatLen, setLastReadChatLen] = useState(0);
+  const unreadChatCount = showChat
+    ? 0
+    : chatMessages.slice(lastReadChatLen).filter((m) => m.senderId !== myPlayerId).length;
+  useEffect(() => {
+    if (showChat) {
+      setLastReadChatLen(chatMessages.length);
+    }
+  }, [showChat, chatMessages.length]);
   const prevStreetRef = useRef(state.street);
 
   const southIndex = useMemo(() => {
@@ -167,10 +176,15 @@ export const HoldemTable: React.FC<HoldemTableProps> = ({
             <button
               type="button"
               onClick={() => setShowChat(true)}
-              className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-emerald-200"
+              className="relative p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-emerald-200"
               title="Чат кімнати"
             >
               <MessageCircle className="w-4 h-4" />
+              {unreadChatCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center shadow">
+                  {unreadChatCount}
+                </span>
+              )}
             </button>
           )}
           {isSandbox && (

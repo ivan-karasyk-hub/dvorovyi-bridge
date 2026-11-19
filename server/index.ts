@@ -88,6 +88,7 @@ const serverConfig: ServerConfig = {
   blackjackEnabled: true,
   trainingEnabled: true,
   karasykBrandingEnabled: true,
+  eightSplitEnabled: true,
   bridgeRoundReward: 50,
   durakWinReward: 100,
   holdemBigBlind: 20,
@@ -216,6 +217,7 @@ function schedulePublicTurnTimeout(room: Room): void {
       st.phase !== 'must_cover_six' &&
       st.phase !== 'choosing_suit' &&
       st.phase !== 'queen_spades_choice' &&
+      st.phase !== 'eight_split_choice' &&
       st.phase !== 'bridge_choice'
     ) {
       return;
@@ -239,6 +241,12 @@ function schedulePublicTurnTimeout(room: Room): void {
           type: 'CHOOSE_QUEEN_SPADES',
           playerId: curP.id,
           option: 'take5_skip',
+        });
+      } else if (cur.phase === 'eight_split_choice') {
+        room.gameState = applyAction(cur, {
+          type: 'CHOOSE_EIGHT_SPLIT',
+          playerId: curP.id,
+          mode: 'all_next',
         });
       } else if (cur.phase === 'playing' && cur.hasDrawnThisTurn) {
         room.gameState = applyAction(cur, { type: 'PASS_TURN', playerId: curP.id });
@@ -308,6 +316,7 @@ function scheduleBotTurnIfNeeded(room: Room): void {
     state.phase !== 'must_cover_six' &&
     state.phase !== 'choosing_suit' &&
     state.phase !== 'queen_spades_choice' &&
+    state.phase !== 'eight_split_choice' &&
     state.phase !== 'bridge_choice'
   ) {
     return;
@@ -906,7 +915,12 @@ wss.on('connection', (ws) => {
             schedulePublicTurnTimeout(room);
           });
         } else {
-          room.gameState = createMatch(room.players, room.bridgeMode);
+          room.gameState = createMatch(
+            room.players,
+            room.bridgeMode,
+            Math.random,
+            serverConfig.eightSplitEnabled,
+          );
           broadcastRoom(room);
           broadcastGameState(room);
           scheduleBotTurnIfNeeded(room);
@@ -1301,6 +1315,9 @@ wss.on('connection', (ws) => {
         }
         if (typeof msg.config.karasykBrandingEnabled === 'boolean') {
           serverConfig.karasykBrandingEnabled = msg.config.karasykBrandingEnabled;
+        }
+        if (typeof msg.config.eightSplitEnabled === 'boolean') {
+          serverConfig.eightSplitEnabled = msg.config.eightSplitEnabled;
         }
         if (
           typeof msg.config.bridgeRoundReward === 'number' &&

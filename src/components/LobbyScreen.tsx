@@ -154,6 +154,17 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [showFriends, setShowFriends] = useState(false);
   const [showRoomChat, setShowRoomChat] = useState(false);
+  const [lastReadRoomChatLen, setLastReadRoomChatLen] = useState(0);
+  const unreadRoomChatCount = showRoomChat
+    ? 0
+    : roomChatMessages
+        .slice(lastReadRoomChatLen)
+        .filter((m) => m.senderId !== currentPlayerId).length;
+  React.useEffect(() => {
+    if (showRoomChat) {
+      setLastReadRoomChatLen(roomChatMessages.length);
+    }
+  }, [showRoomChat, roomChatMessages.length]);
   const [friendTargetId, setFriendTargetId] = useState('');
   const [invitedFriendIds, setInvitedFriendIds] = useState<string[]>([]);
   const [showAdmin, setShowAdmin] = useState(false);
@@ -325,13 +336,13 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               <button
                 type="button"
                 onClick={() => setShowRoomChat(true)}
-                className="flex items-center gap-1 px-2.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold text-emerald-200 active:scale-95 transition"
+                className="relative flex items-center gap-1 px-2.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold text-emerald-200 active:scale-95 transition"
                 title="Чат кімнати"
               >
                 <MessageCircle className="w-3.5 h-3.5" />
-                {roomChatMessages.length > 0 && (
-                  <span className="text-[10px] font-bold text-amber-300">
-                    {roomChatMessages.length}
+                {unreadRoomChatCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center shadow">
+                    {unreadRoomChatCount}
                   </span>
                 )}
               </button>
@@ -1432,6 +1443,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                         ['slotEnabled', 'Слот'],
                         ['trainingEnabled', 'Тренування'],
                         ['karasykBrandingEnabled', 'Напис «Карась»'],
+                        ['eightSplitEnabled', 'Ділення 8-ок'],
                       ] as const
                     ).map(([key, label]) => {
                       const active = serverConfig[key];

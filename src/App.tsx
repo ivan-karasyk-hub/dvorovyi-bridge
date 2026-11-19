@@ -85,6 +85,7 @@ export const App: React.FC = () => {
     blackjackEnabled: true,
     trainingEnabled: true,
     karasykBrandingEnabled: true,
+    eightSplitEnabled: true,
     bridgeRoundReward: 50,
     durakWinReward: 100,
     holdemBigBlind: 20,
@@ -346,7 +347,9 @@ export const App: React.FC = () => {
     } else if (selectedGameType === 'holdem') {
       setSandboxHoldemState(createHoldemMatch(players));
     } else {
-      setSandboxState(createMatch(players, selectedBridgeMode));
+      setSandboxState(
+        createMatch(players, selectedBridgeMode, Math.random, serverConfig.eightSplitEnabled),
+      );
     }
   };
 

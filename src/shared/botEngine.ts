@@ -68,6 +68,14 @@ export function chooseBotAction(state: GameState): GameAction | null {
     };
   }
 
+  if (state.phase === 'eight_split_choice') {
+    return {
+      type: 'CHOOSE_EIGHT_SPLIT',
+      playerId: bot.id,
+      mode: 'split_round',
+    };
+  }
+
   if (state.phase !== 'playing' && state.phase !== 'must_cover_six') {
     return null;
   }

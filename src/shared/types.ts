@@ -52,6 +52,7 @@ export type TurnPhase =
   | 'must_cover_six'       // Active player played a 2 or 6 and must cover it in this same turn
   | 'choosing_suit'        // Active player played a Jack and must choose orderedSuit
   | 'queen_spades_choice'  // Next player chooses: take 5 & skip OR take 8 & play
+  | 'eight_split_choice'   // Active player played 2+ 8s with 3+ players: give all to next OR split +2
   | 'bridge_choice'        // 4 same-rank cards on top; player can declare Bridge or keep playing
   | 'round_over'           // Round ended, showing round summary before next round
   | 'match_over';          // Someone reached >= 126 points
@@ -72,6 +73,7 @@ export interface WaitingPlayer {
 export interface GameState {
   round: number;
   bridgeMode?: BridgeMode;
+  eightSplitEnabled?: boolean;
   players: Player[];
   waitingPlayers?: WaitingPlayer[];
   dealerIndex: number;
@@ -98,6 +100,7 @@ export type GameAction =
   | { type: 'PASS_TURN'; playerId: string }
   | { type: 'CHOOSE_SUIT'; playerId: string; suit: Suit }
   | { type: 'CHOOSE_QUEEN_SPADES'; playerId: string; option: 'take5_skip' | 'take8_play' }
+  | { type: 'CHOOSE_EIGHT_SPLIT'; playerId: string; mode: 'all_next' | 'split_round' }
   | { type: 'DECLARE_BRIDGE'; playerId: string }
   | { type: 'DECLINE_BRIDGE'; playerId: string }
   | { type: 'START_NEXT_ROUND'; playerId: string }
@@ -204,6 +207,7 @@ export interface ServerConfig {
   blackjackEnabled: boolean;
   trainingEnabled: boolean;
   karasykBrandingEnabled: boolean;
+  eightSplitEnabled: boolean;
   bridgeRoundReward: number;
   durakWinReward: number;
   holdemBigBlind: number;

@@ -564,6 +564,7 @@ export function createMatch(
   }>,
   bridgeMode: BridgeMode = 'kalynivskyi',
   rng: () => number = Math.random,
+  eightSplitEnabled = true,
 ): GameState {
   const players: Player[] = playerInfos.map((info) => ({
     id: info.id,
@@ -582,6 +583,7 @@ export function createMatch(
     {
       round: 0,
       bridgeMode,
+      eightSplitEnabled,
       players,
       dealerIndex: initialDealer,
       currentPlayerIndex: 0,
@@ -651,6 +653,54 @@ export function dealRound(
   return applyOpeningCardEffect(baseState, openingCard, firstPlayerIndex, rng);
 }
 
+function applyEndOfRoundCardPenalty(
+  state: GameState,
+  playedCards: Card[],
+  logs: GameLogEntry[],
+  rng: () => number,
+): GameState {
+  const mode = state.bridgeMode ?? 'kalynivskyi';
+  if (mode !== 'kalynivskyi' || playedCards.length === 0) return state;
+
+  const lastCard = playedCards[playedCards.length - 1];
+  let drawCount = 0;
+  let reasonLabel = '';
+  if (lastCard.rank === '8') {
+    drawCount = 2 * playedCards.length;
+    reasonLabel = 'Вісімка';
+  } else if (lastCard.rank === '7') {
+    drawCount = playedCards.length;
+    reasonLabel = 'Сімка';
+  } else if (playedCards.some((c) => c.rank === 'Q' && c.suit === 'spades')) {
+    drawCount = 5;
+    reasonLabel = 'Пікова Дама Q♠';
+  }
+
+  if (drawCount <= 0) return state;
+
+  const players = state.players.map((p) => ({ ...p, hand: [...p.hand] }));
+  const victimIdx = advanceActivePlayer(players, state.currentPlayerIndex, 1);
+  if (victimIdx === state.currentPlayerIndex) return state;
+
+  const res = drawFromDeck(state.deck, state.discardPile, drawCount, rng);
+  const reshuffleCount = (state.reshuffleCount ?? 0) + res.reshuffles;
+  players[victimIdx].hand.push(...res.drawn);
+  logs.push(
+    makeLog(
+      `${reasonLabel} у кінці раунду: ${players[victimIdx].name} добирає ${res.drawn.length} карт(и) перед підрахунком!`,
+      'special',
+    ),
+  );
+
+  return {
+    ...state,
+    players,
+    deck: res.deck,
+    discardPile: res.discardPile,
+    reshuffleCount,
+  };
+}
+
 function resolveSpecialEffects(
   updatedState: GameState,
   playedCards: Card[],
@@ -678,9 +728,10 @@ function resolveSpecialEffects(
     };
   }
 
-  // Check empty hand win
+  // Check empty hand win (apply 7 / 8 / Q♠ penalty to next player before scoring in Kalynivskyi)
   if (players[updatedState.currentPlayerIndex].hand.length === 0) {
-    return finalizeRound(updatedState, activePlayer.id, 'empty_hand', playedCards, logs);
+    const penalized = applyEndOfRoundCardPenalty(updatedState, playedCards, logs, rng);
+    return finalizeRound(penalized, activePlayer.id, 'empty_hand', playedCards, logs);
   }
 
   if (lastCard.rank === 'J') {
@@ -725,6 +776,26 @@ function resolveSpecialEffects(
   }
 
   if (lastCard.rank === '8') {
+    const aliveCount = players.filter((p) => !p.eliminated).length;
+    if (
+      mode === 'kalynivskyi' &&
+      (updatedState.eightSplitEnabled ?? true) &&
+      playedCards.length >= 2 &&
+      aliveCount >= 3
+    ) {
+      logs.push(
+        makeLog(
+          `${activePlayer.name} поклав ${playedCards.length} вісімки — обирає, кому роздати карти.`,
+          'special',
+        ),
+      );
+      return {
+        ...updatedState,
+        phase: 'eight_split_choice',
+        currentPlayerIndex: updatedState.currentPlayerIndex,
+        logs: appendLogs(updatedState.logs, ...logs),
+      };
+    }
     const victimIdx = advanceActivePlayer(players, updatedState.currentPlayerIndex, 1);
     const drawCount = mode === 'classic' ? 1 : 2 * playedCards.length;
     const res = drawFromDeck(deck, discardPile, drawCount, rng);
@@ -799,10 +870,14 @@ function resolveSpecialEffects(
   }
 
   if (lastCard.rank === 'A') {
-    const skips = playedCards.length;
-    const nextIdx = advanceActivePlayer(players, updatedState.currentPlayerIndex, 1 + skips);
+    const aliveCount = players.filter((p) => !p.eliminated).length;
+    const effectiveSkips = Math.min(playedCards.length, Math.max(0, aliveCount - 1));
+    const nextIdx =
+      effectiveSkips === aliveCount - 1
+        ? updatedState.currentPlayerIndex
+        : advanceActivePlayer(players, updatedState.currentPlayerIndex, 1 + effectiveSkips);
     const skippedNames: string[] = [];
-    for (let s = 1; s <= skips; s++) {
+    for (let s = 1; s <= effectiveSkips; s++) {
       const skippedIdx = advanceActivePlayer(players, updatedState.currentPlayerIndex, s);
       skippedNames.push(players[skippedIdx].name);
     }
@@ -918,9 +993,10 @@ export function applyAction(
 
       // Check «Бридж!» (4 same-rank cards on top of discard pile)
       if (checkBridgeOnTop(discardPile)) {
-        // If hand is already empty, end round immediately
+        // If hand is already empty, end round immediately (apply 7/8/Q♠ penalty first)
         if (players[state.currentPlayerIndex].hand.length === 0) {
-          return finalizeRound(updatedState, activePlayer.id, 'bridge', playedCards, logs);
+          const penalized = applyEndOfRoundCardPenalty(updatedState, playedCards, logs, rng);
+          return finalizeRound(penalized, activePlayer.id, 'bridge', playedCards, logs);
         }
         logs.push(
           makeLog(`${activePlayer.name} може оголосити БРИДЖ!`, 'bridge'),
@@ -940,7 +1016,9 @@ export function applyAction(
       if (state.phase !== 'bridge_choice') return state;
       const count = state.lastPlayedCount ?? 1;
       const playedCards = state.discardPile.slice(-count);
-      return finalizeRound(state, activePlayer.id, 'bridge', playedCards, []);
+      const logs: GameLogEntry[] = [];
+      const penalized = applyEndOfRoundCardPenalty(state, playedCards, logs, rng);
+      return finalizeRound(penalized, activePlayer.id, 'bridge', playedCards, logs);
     }
 
     case 'DECLINE_BRIDGE': {
@@ -949,6 +1027,84 @@ export function applyAction(
       const playedCards = state.discardPile.slice(-count);
       const log = makeLog(`${activePlayer.name} продовжує гру без Бриджу.`);
       return resolveSpecialEffects(state, playedCards, [log], rng);
+    }
+
+    case 'CHOOSE_EIGHT_SPLIT': {
+      if (state.phase !== 'eight_split_choice') return state;
+      const count = state.lastPlayedCount ?? 2;
+      const players = state.players.map((p) => ({ ...p, hand: [...p.hand] }));
+      let deck = [...state.deck];
+      let discardPile = [...state.discardPile];
+      let reshuffleCount = state.reshuffleCount ?? 0;
+
+      if (action.mode === 'all_next') {
+        const victimIdx = advanceActivePlayer(players, state.currentPlayerIndex, 1);
+        const res = drawFromDeck(deck, discardPile, 2 * count, rng);
+        deck = res.deck;
+        discardPile = res.discardPile;
+        reshuffleCount += res.reshuffles;
+        players[victimIdx].hand.push(...res.drawn);
+        const nextIdx = advanceActivePlayer(players, state.currentPlayerIndex, 2);
+        return {
+          ...state,
+          players,
+          deck,
+          discardPile,
+          reshuffleCount,
+          phase: 'playing',
+          currentPlayerIndex: nextIdx,
+          logs: appendLogs(
+            state.logs,
+            makeLog(
+              `Вісімка: ${players[victimIdx].name} бере ${res.drawn.length} карт(и) і пропускає хід.`,
+              'special',
+            ),
+          ),
+        };
+      }
+
+      // split_round: distribute +2 per 8 clockwise to other alive players (never self)
+      const otherIndices: number[] = [];
+      let cursor = state.currentPlayerIndex;
+      for (let step = 0; step < players.length - 1; step++) {
+        cursor = advanceActivePlayer(players, cursor, 1);
+        if (cursor === state.currentPlayerIndex || otherIndices.includes(cursor)) break;
+        otherIndices.push(cursor);
+      }
+
+      const drawnPerIdx = new Map<number, number>();
+      for (let c = 0; c < count; c++) {
+        const targetIdx = otherIndices[c % otherIndices.length];
+        const res = drawFromDeck(deck, discardPile, 2, rng);
+        deck = res.deck;
+        discardPile = res.discardPile;
+        reshuffleCount += res.reshuffles;
+        players[targetIdx].hand.push(...res.drawn);
+        drawnPerIdx.set(targetIdx, (drawnPerIdx.get(targetIdx) ?? 0) + res.drawn.length);
+      }
+
+      const skips = Math.min(count, otherIndices.length);
+      const nextIdx =
+        skips === otherIndices.length
+          ? state.currentPlayerIndex
+          : advanceActivePlayer(players, state.currentPlayerIndex, 1 + skips);
+      const summary = Array.from(drawnPerIdx.entries())
+        .map(([idx, amt]) => `${players[idx].name} (+${amt})`)
+        .join(', ');
+
+      return {
+        ...state,
+        players,
+        deck,
+        discardPile,
+        reshuffleCount,
+        phase: 'playing',
+        currentPlayerIndex: nextIdx,
+        logs: appendLogs(
+          state.logs,
+          makeLog(`Вісімки розділено: ${summary} — пропускають хід!`, 'special'),
+        ),
+      };
     }
 
     case 'CHOOSE_QUEEN_SPADES': {

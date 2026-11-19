@@ -156,7 +156,7 @@ describe('gameEngine', () => {
     expect(after7.players[1].hand).toHaveLength(3); // 1 + 2
     expect(after7.currentPlayerIndex).toBe(1); // p2 still goes!
 
-    // two 8s -> next draws 4 and only p2 skips
+    // two 8s in 3-player game -> eight_split_choice (split_round vs all_next)
     const s8 = makeTestState({
       players: [
         { id: 'p1', name: 'P1', hand: [c('8', 'spades'), c('8', 'hearts'), c('9', 'clubs')], score: 0, connected: true },
@@ -164,9 +164,16 @@ describe('gameEngine', () => {
         { id: 'p3', name: 'P3', hand: [c('4', 'clubs')], score: 0, connected: true },
       ],
     });
-    const after8 = applyAction(s8, { type: 'PLAY_CARDS', playerId: 'p1', cardIds: ['8_spades', '8_hearts'] });
-    expect(after8.players[1].hand).toHaveLength(5); // 1 + 4
-    expect(after8.currentPlayerIndex).toBe(2); // skipped p2, now p3
+    const after8Choice = applyAction(s8, { type: 'PLAY_CARDS', playerId: 'p1', cardIds: ['8_spades', '8_hearts'] });
+    expect(after8Choice.phase).toBe('eight_split_choice');
+    const after8All = applyAction(after8Choice, { type: 'CHOOSE_EIGHT_SPLIT', playerId: 'p1', mode: 'all_next' });
+    expect(after8All.players[1].hand).toHaveLength(5); // 1 + 4
+    expect(after8All.currentPlayerIndex).toBe(2); // skipped p2, now p3
+
+    const after8Split = applyAction(after8Choice, { type: 'CHOOSE_EIGHT_SPLIT', playerId: 'p1', mode: 'split_round' });
+    expect(after8Split.players[1].hand).toHaveLength(3); // 1 + 2
+    expect(after8Split.players[2].hand).toHaveLength(3); // 1 + 2
+    expect(after8Split.currentPlayerIndex).toBe(0); // both p2 and p3 skipped, back to p1
 
     // Q♠ -> next chooses take5_skip OR take8_play
     const sq = makeTestState({
@@ -199,20 +206,63 @@ describe('gameEngine', () => {
     expect(qTake8.players[1].hand).toHaveLength(9); // 1 + 8
     expect(qTake8.currentPlayerIndex).toBe(1); // p2 plays
 
-    // 2 Aces in 3-player game -> skips 2 players, returns to p1
-    const sa = makeTestState({
+    // 2 Aces in 2-player game -> opponent skipped, turn stays on p1 (never skips self)
+    const sa2p = makeTestState({
       players: [
         { id: 'p1', name: 'P1', hand: [c('A', 'spades'), c('A', 'hearts'), c('9', 'clubs')], score: 0, connected: true },
         { id: 'p2', name: 'P2', hand: [c('Q', 'clubs')], score: 0, connected: true },
-        { id: 'p3', name: 'P3', hand: [c('8', 'clubs')], score: 0, connected: true },
       ],
     });
-    const after2A = applyAction(sa, {
+    const after2A2p = applyAction(sa2p, {
       type: 'PLAY_CARDS',
       playerId: 'p1',
       cardIds: ['A_spades', 'A_hearts'],
     });
-    expect(after2A.currentPlayerIndex).toBe(0);
+    expect(after2A2p.currentPlayerIndex).toBe(0);
+
+    // 4 Aces in 4-player game -> skips 3 opponents, returns to p1
+    const sa4p = makeTestState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          hand: [c('A', 'spades'), c('A', 'hearts'), c('A', 'diamonds'), c('A', 'clubs'), c('9', 'clubs')],
+          score: 0,
+          connected: true,
+        },
+        { id: 'p2', name: 'P2', hand: [c('Q', 'clubs')], score: 0, connected: true },
+        { id: 'p3', name: 'P3', hand: [c('8', 'clubs')], score: 0, connected: true },
+        { id: 'p4', name: 'P4', hand: [c('7', 'clubs')], score: 0, connected: true },
+      ],
+    });
+    const after4A = applyAction(sa4p, {
+      type: 'PLAY_CARDS',
+      playerId: 'p1',
+      cardIds: ['A_spades', 'A_hearts', 'A_diamonds', 'A_clubs'],
+    });
+    expect(after4A.currentPlayerIndex).toBe(0);
+
+    // Bridge on 8 -> next player draws 2 cards before scoring
+    const bridge8State = makeTestState({
+      discardPile: [c('8', 'spades'), c('8', 'hearts'), c('8', 'diamonds')],
+      deck: [c('J', 'spades'), c('J', 'hearts'), c('4', 'clubs')],
+      players: [
+        { id: 'p1', name: 'P1', hand: [c('8', 'clubs'), c('9', 'clubs')], score: 0, connected: true },
+        { id: 'p2', name: 'P2', hand: [c('4', 'hearts')], score: 0, connected: true },
+      ],
+    });
+    const afterBridge8Play = applyAction(bridge8State, {
+      type: 'PLAY_CARDS',
+      playerId: 'p1',
+      cardIds: ['8_clubs'],
+    });
+    expect(afterBridge8Play.phase).toBe('bridge_choice');
+    const afterBridge8Declare = applyAction(afterBridge8Play, {
+      type: 'DECLARE_BRIDGE',
+      playerId: 'p1',
+    });
+    expect(afterBridge8Declare.phase).toBe('round_over');
+    expect(afterBridge8Declare.players[1].hand).toHaveLength(3); // 1 + 2 drawn before scoring!
   });
 
   it('offers optional «Бридж!» choice when 4 same-rank cards are on top of discard pile', () => {

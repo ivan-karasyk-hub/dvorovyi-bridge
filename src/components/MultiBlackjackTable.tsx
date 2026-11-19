@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { LogOut, MessageCircle, RotateCcw } from 'lucide-react';
 import type {
   Card,
@@ -40,6 +40,15 @@ export const MultiBlackjackTable: React.FC<MultiBlackjackTableProps> = ({
 }) => {
   const [selectedBet, setSelectedBet] = useState(25);
   const [chatOpen, setChatOpen] = useState(false);
+  const [lastReadChatLen, setLastReadChatLen] = useState(0);
+  const unreadChatCount = chatOpen
+    ? 0
+    : chatMessages.slice(lastReadChatLen).filter((m) => m.senderId !== myPlayerId).length;
+  useEffect(() => {
+    if (chatOpen) {
+      setLastReadChatLen(chatMessages.length);
+    }
+  }, [chatOpen, chatMessages.length]);
 
   const me = state.players.find((p) => p.id === myPlayerId);
   const currentPlayer = state.players[state.currentPlayerIndex];
@@ -87,9 +96,9 @@ export const MultiBlackjackTable: React.FC<MultiBlackjackTableProps> = ({
             title="Чат кімнати"
           >
             <MessageCircle className="w-4 h-4" />
-            {chatMessages.length > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full bg-amber-400 text-slate-950 text-[10px] font-black">
-                {chatMessages.length}
+            {unreadChatCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center shadow">
+                {unreadChatCount}
               </span>
             )}
           </button>
