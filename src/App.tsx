@@ -8,6 +8,8 @@ import type {
   BridgeMode,
   ChatMessage,
   ClientMessage,
+  CrocodileAction,
+  CrocodileState,
   DurakAction,
   DurakMode,
   DurakState,
@@ -26,6 +28,8 @@ import type {
   ServerConfig,
   ServerMessage,
   SlotSpinOutcome,
+  SpyAction,
+  SpyState,
   WalletSummary,
 } from './shared/types';
 import {
@@ -40,6 +44,8 @@ import { DurakTable } from './components/DurakTable';
 import { HoldemTable } from './components/HoldemTable';
 import { SlotModal } from './components/SlotModal';
 import { MultiBlackjackTable } from './components/MultiBlackjackTable';
+import { SpyTable } from './components/SpyTable';
+import { CrocodileTable } from './components/CrocodileTable';
 import { ChatDrawer } from './components/ChatDrawer';
 
 function getWsUrl(): string {
@@ -66,6 +72,8 @@ export const App: React.FC = () => {
   const [onlineHoldemState, setOnlineHoldemState] = useState<HoldemState | null>(null);
   const [onlineMultiBlackjackState, setOnlineMultiBlackjackState] =
     useState<MultiBlackjackState | null>(null);
+  const [onlineSpyState, setOnlineSpyState] = useState<SpyState | null>(null);
+  const [onlineCrocodileState, setOnlineCrocodileState] = useState<CrocodileState | null>(null);
   const [sandboxState, setSandboxState] = useState<GameState | null>(null);
   const [sandboxDurakState, setSandboxDurakState] = useState<DurakState | null>(null);
   const [sandboxHoldemState, setSandboxHoldemState] = useState<HoldemState | null>(null);
@@ -83,6 +91,8 @@ export const App: React.FC = () => {
     durakEnabled: true,
     holdemEnabled: true,
     blackjackEnabled: true,
+    spyEnabled: true,
+    crocodileEnabled: true,
     trainingEnabled: true,
     karasykBrandingEnabled: true,
     eightSplitEnabled: true,
@@ -177,6 +187,10 @@ export const App: React.FC = () => {
             setOnlineHoldemState(msg.state);
           } else if (msg.type === 'MULTI_BJ_STATE') {
             setOnlineMultiBlackjackState(msg.state);
+          } else if (msg.type === 'SPY_STATE') {
+            setOnlineSpyState(msg.state);
+          } else if (msg.type === 'CROCO_STATE') {
+            setOnlineCrocodileState(msg.state);
           } else if (msg.type === 'WALLET_UPDATE') {
             setWallet(msg.wallet);
           } else if (msg.type === 'LEADERBOARD') {
@@ -233,6 +247,8 @@ export const App: React.FC = () => {
             setOnlineDurakState(null);
             setOnlineHoldemState(null);
             setOnlineMultiBlackjackState(null);
+            setOnlineSpyState(null);
+            setOnlineCrocodileState(null);
             setError(msg.reason);
           } else if (msg.type === 'ADMIN_NOTICE') {
             setAdminNotice(msg.message);
@@ -332,6 +348,8 @@ export const App: React.FC = () => {
     setOnlineDurakState(null);
     setOnlineHoldemState(null);
     setOnlineMultiBlackjackState(null);
+    setOnlineSpyState(null);
+    setOnlineCrocodileState(null);
     setSandboxState(null);
     setSandboxDurakState(null);
     setSandboxHoldemState(null);
@@ -458,6 +476,48 @@ export const App: React.FC = () => {
             setSandboxState((prev) => (prev ? applyAction(prev, action) : null))
           }
           onLeave={() => setSandboxState(null)}
+        />
+      </>
+    );
+  }
+
+  if (onlineCrocodileState && room) {
+    return (
+      <>
+        {inviteBanner}
+        <CrocodileTable
+          state={onlineCrocodileState}
+          myPlayerId={playerId}
+          roomCode={room.code}
+          chatMessages={roomChatMessages}
+          onSendChat={(text) =>
+            sendWs({ type: 'SEND_ROOM_CHAT', code: room.code, playerId, playerName, text })
+          }
+          onAction={(action: CrocodileAction) =>
+            sendWs({ type: 'CROCO_ACTION', code: room.code, action })
+          }
+          onLeave={handleLeaveRoom}
+        />
+      </>
+    );
+  }
+
+  if (onlineSpyState && room) {
+    return (
+      <>
+        {inviteBanner}
+        <SpyTable
+          state={onlineSpyState}
+          myPlayerId={playerId}
+          roomCode={room.code}
+          chatMessages={roomChatMessages}
+          onSendChat={(text) =>
+            sendWs({ type: 'SEND_ROOM_CHAT', code: room.code, playerId, playerName, text })
+          }
+          onAction={(action: SpyAction) =>
+            sendWs({ type: 'SPY_ACTION', code: room.code, action })
+          }
+          onLeave={handleLeaveRoom}
         />
       </>
     );

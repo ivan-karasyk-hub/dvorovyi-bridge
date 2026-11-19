@@ -106,7 +106,7 @@ export type GameAction =
   | { type: 'START_NEXT_ROUND'; playerId: string }
   | { type: 'REMATCH'; playerId: string };
 
-export type GameType = 'bridge' | 'durak' | 'holdem' | 'blackjack';
+export type GameType = 'bridge' | 'durak' | 'holdem' | 'blackjack' | 'spy' | 'crocodile';
 export type BridgeMode = 'kalynivskyi' | 'classic';
 export type DurakMode = 'podkidnoy' | 'perevodnoy';
 
@@ -205,6 +205,8 @@ export interface ServerConfig {
   durakEnabled: boolean;
   holdemEnabled: boolean;
   blackjackEnabled: boolean;
+  spyEnabled: boolean;
+  crocodileEnabled: boolean;
   trainingEnabled: boolean;
   karasykBrandingEnabled: boolean;
   eightSplitEnabled: boolean;
@@ -266,6 +268,73 @@ export type MultiBlackjackAction =
   | { type: 'BJ_STAND'; playerId: string }
   | { type: 'BJ_DOUBLE'; playerId: string }
   | { type: 'BJ_NEW_ROUND'; playerId: string };
+
+export interface SpyPlayer {
+  id: string;
+  name: string;
+  isSpy: boolean;
+  role: string;
+  votedForId: string | null;
+  connected: boolean;
+  isHost?: boolean;
+}
+
+export interface SpyState {
+  round: number;
+  location: string | null;
+  allLocations: string[];
+  players: SpyPlayer[];
+  phase: 'playing' | 'voting' | 'finished';
+  winner: 'citizens' | 'spy' | null;
+  winReason: string | null;
+  guessedLocation: string | null;
+  endsAt: number;
+  logs: GameLogEntry[];
+}
+
+export type SpyAction =
+  | { type: 'SPY_START_VOTE'; playerId: string }
+  | { type: 'SPY_VOTE'; playerId: string; targetId: string }
+  | { type: 'SPY_GUESS_LOCATION'; playerId: string; location: string }
+  | { type: 'SPY_NEW_ROUND'; playerId: string };
+
+export interface CrocodileStroke {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  color: string;
+  size: number;
+}
+
+export interface CrocodilePlayer {
+  id: string;
+  name: string;
+  score: number;
+  connected: boolean;
+  isHost?: boolean;
+}
+
+export interface CrocodileState {
+  round: number;
+  drawerIndex: number;
+  word: string | null;
+  wordLength: number;
+  players: CrocodilePlayer[];
+  strokes: CrocodileStroke[];
+  guesses: Array<{ id: string; playerId: string; playerName: string; text: string; correct: boolean }>;
+  phase: 'drawing' | 'round_over';
+  winnerId: string | null;
+  winnerName: string | null;
+  logs: GameLogEntry[];
+}
+
+export type CrocodileAction =
+  | { type: 'CROCO_DRAW'; playerId: string; stroke: CrocodileStroke }
+  | { type: 'CROCO_CLEAR'; playerId: string }
+  | { type: 'CROCO_GUESS'; playerId: string; text: string }
+  | { type: 'CROCO_SKIP_WORD'; playerId: string }
+  | { type: 'CROCO_NEW_ROUND'; playerId: string };
 
 export interface AdminOnlinePlayer {
   playerId: string;
@@ -393,6 +462,8 @@ export type ClientMessage =
   | { type: 'DURAK_ACTION'; code: string; action: DurakAction }
   | { type: 'HOLDEM_ACTION'; code: string; action: HoldemAction }
   | { type: 'MULTI_BJ_ACTION'; code: string; action: MultiBlackjackAction }
+  | { type: 'SPY_ACTION'; code: string; action: SpyAction }
+  | { type: 'CROCO_ACTION'; code: string; action: CrocodileAction }
   | { type: 'GET_WALLET'; playerId: string; playerName: string }
   | { type: 'CLAIM_BONUS'; playerId: string; playerName: string }
   | { type: 'CLAIM_DAILY_BONUS'; playerId: string; playerName: string }
@@ -427,6 +498,10 @@ export type ServerMessage =
   | { type: 'DURAK_STATE'; state: DurakState }
   | { type: 'HOLDEM_STATE'; state: HoldemState }
   | { type: 'MULTI_BJ_STATE'; state: MultiBlackjackState }
+  | { type: 'SPY_STATE'; state: SpyState }
+  | { type: 'CROCO_STATE'; state: CrocodileState }
+  | { type: 'CROCO_STROKE'; stroke: CrocodileStroke }
+  | { type: 'CROCO_CLEAR' }
   | { type: 'WALLET_UPDATE'; wallet: WalletSummary }
   | { type: 'DAILY_BONUS_RESULT'; amount: number; nextDailyAt: number }
   | { type: 'SERVER_CONFIG'; config: ServerConfig }

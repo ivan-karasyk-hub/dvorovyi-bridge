@@ -11,6 +11,7 @@ import {
   VolumeX,
   ArrowRightLeft,
   MessageCircle,
+  ScrollText,
 } from 'lucide-react';
 import type { Card, ChatMessage, DurakAction, DurakPlayer, DurakState } from '../shared/types';
 import {
@@ -24,6 +25,7 @@ import {
 } from '../shared/durakEngine';
 import { PlayingCard } from './PlayingCard';
 import { ChatDrawer } from './ChatDrawer';
+import { LogsModal } from './LogsModal';
 import { triggerHaptic } from '../utils/telegram';
 import {
   isSoundEnabled,
@@ -58,6 +60,7 @@ export const DurakTable: React.FC<DurakTableProps> = ({
   const [soundOn, setSoundOn] = useState(() => isSoundEnabled());
   const [sandboxRevealAll, setSandboxRevealAll] = useState(true);
   const [showChat, setShowChat] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
   const [lastReadChatLen, setLastReadChatLen] = useState(0);
   const unreadChatCount = showChat
     ? 0
@@ -233,6 +236,14 @@ export const DurakTable: React.FC<DurakTableProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setShowLogs(true)}
+            className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-amber-200"
+            title="Історія ходів"
+          >
+            <ScrollText className="w-4 h-4" />
+          </button>
           {roomCode && onSendChat && (
             <button
               type="button"
@@ -539,6 +550,7 @@ export const DurakTable: React.FC<DurakTableProps> = ({
           onClose={() => setShowChat(false)}
         />
       )}
+      {showLogs && <LogsModal logs={state.logs} onClose={() => setShowLogs(false)} />}
     </div>
   );
 };

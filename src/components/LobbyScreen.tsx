@@ -439,6 +439,32 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                         🃏 21
                       </button>
                     )}
+                    {serverConfig.spyEnabled && (
+                      <button
+                        type="button"
+                        onClick={() => onSetRoomGame('spy', room.durakMode)}
+                        className={`px-2.5 py-1 rounded-lg font-bold transition ${
+                          room.gameType === 'spy'
+                            ? 'bg-amber-400 text-slate-950'
+                            : 'bg-white/10 text-white/75'
+                        }`}
+                      >
+                        🕵️ Шпигун
+                      </button>
+                    )}
+                    {serverConfig.crocodileEnabled && (
+                      <button
+                        type="button"
+                        onClick={() => onSetRoomGame('crocodile', room.durakMode)}
+                        className={`px-2.5 py-1 rounded-lg font-bold transition ${
+                          room.gameType === 'crocodile'
+                            ? 'bg-amber-400 text-slate-950'
+                            : 'bg-white/10 text-white/75'
+                        }`}
+                      >
+                        🎨 Крокодил
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <span className="font-bold text-amber-300">
@@ -448,7 +474,11 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                         ? 'Покер'
                         : room.gameType === 'blackjack'
                           ? 'Блекджек 21'
-                          : `${serverConfig.karasykBrandingEnabled ? 'Карасьовий Брідж' : 'Брідж'} (${(room.bridgeMode ?? 'kalynivskyi') === 'classic' ? 'Дефолт' : 'Калинівський'})`}
+                          : room.gameType === 'spy'
+                            ? 'Шпигун'
+                            : room.gameType === 'crocodile'
+                              ? 'Крокодил'
+                              : `${serverConfig.karasykBrandingEnabled ? 'Карасьовий Брідж' : 'Брідж'} (${(room.bridgeMode ?? 'kalynivskyi') === 'classic' ? 'Дефолт' : 'Калинівський'})`}
                   </span>
                 )}
               </div>
@@ -626,7 +656,10 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             {isHost ? (
               <button
                 type="button"
-                disabled={room.players.length < (room.gameType === 'blackjack' ? 1 : 2)}
+                disabled={
+                  room.players.length <
+                  (room.gameType === 'spy' ? 3 : room.gameType === 'blackjack' ? 1 : 2)
+                }
                 onClick={onStartOnlineGame}
                 className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 disabled:opacity-40 disabled:pointer-events-none text-slate-950 font-extrabold text-sm shadow-lg active:scale-95 transition"
               >
@@ -762,14 +795,18 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                 ? 'Покер на фішки • 2–6 гравців'
                 : selectedGameType === 'blackjack'
                   ? 'Блекджек 21 • 1–4 гравці'
-                  : `Брідж (${selectedBridgeMode === 'classic' ? 'Дефолт' : 'Калинівський'}) • 2–6 гравців`}
+                  : selectedGameType === 'spy'
+                    ? 'Шпигун • 3–6 гравців'
+                    : selectedGameType === 'crocodile'
+                      ? 'Крокодил (малювалка) • 2–6 гравців'
+                      : `Брідж (${selectedBridgeMode === 'classic' ? 'Дефолт' : 'Калинівський'}) • 2–6 гравців`}
           </p>
-          <div className="flex items-center justify-center flex-wrap gap-1.5 pt-1">
+          <div className="flex items-center justify-center flex-wrap gap-2 pt-1">
             {serverConfig.bridgeEnabled && (
               <button
                 type="button"
                 onClick={() => onSelectGameType('bridge')}
-                className={`px-3 py-1 rounded-full text-[11px] font-extrabold transition ${
+                className={`px-3.5 py-2 rounded-full text-xs font-extrabold transition ${
                   selectedGameType === 'bridge'
                     ? 'bg-amber-400 text-slate-950'
                     : 'bg-white/10 text-white/75 hover:bg-white/20'
@@ -782,7 +819,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               <button
                 type="button"
                 onClick={() => onSelectGameType('durak')}
-                className={`px-3 py-1 rounded-full text-[11px] font-extrabold transition ${
+                className={`px-3.5 py-2 rounded-full text-xs font-extrabold transition ${
                   selectedGameType === 'durak'
                     ? 'bg-amber-400 text-slate-950'
                     : 'bg-white/10 text-white/75 hover:bg-white/20'
@@ -795,7 +832,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               <button
                 type="button"
                 onClick={() => onSelectGameType('holdem')}
-                className={`px-3 py-1 rounded-full text-[11px] font-extrabold transition ${
+                className={`px-3.5 py-2 rounded-full text-xs font-extrabold transition ${
                   selectedGameType === 'holdem'
                     ? 'bg-amber-400 text-slate-950'
                     : 'bg-white/10 text-white/75 hover:bg-white/20'
@@ -808,7 +845,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               <button
                 type="button"
                 onClick={() => onSelectGameType('blackjack')}
-                className={`px-3 py-1 rounded-full text-[11px] font-extrabold transition ${
+                className={`px-3.5 py-2 rounded-full text-xs font-extrabold transition ${
                   selectedGameType === 'blackjack'
                     ? 'bg-amber-400 text-slate-950'
                     : 'bg-white/10 text-white/75 hover:bg-white/20'
@@ -817,11 +854,37 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                 🃏 Блекджек
               </button>
             )}
+            {serverConfig.spyEnabled && (
+              <button
+                type="button"
+                onClick={() => onSelectGameType('spy')}
+                className={`px-3.5 py-2 rounded-full text-xs font-extrabold transition ${
+                  selectedGameType === 'spy'
+                    ? 'bg-amber-400 text-slate-950'
+                    : 'bg-white/10 text-white/75 hover:bg-white/20'
+                }`}
+              >
+                🕵️ Шпигун
+              </button>
+            )}
+            {serverConfig.crocodileEnabled && (
+              <button
+                type="button"
+                onClick={() => onSelectGameType('crocodile')}
+                className={`px-3.5 py-2 rounded-full text-xs font-extrabold transition ${
+                  selectedGameType === 'crocodile'
+                    ? 'bg-amber-400 text-slate-950'
+                    : 'bg-white/10 text-white/75 hover:bg-white/20'
+                }`}
+              >
+                🎨 Крокодил
+              </button>
+            )}
             {connected && serverConfig.slotEnabled && (
               <button
                 type="button"
                 onClick={onOpenSlot}
-                className="px-3 py-1 rounded-full bg-purple-500/35 hover:bg-purple-500/50 border border-purple-400/45 text-purple-100 text-[11px] font-extrabold transition active:scale-95"
+                className="px-3.5 py-2 rounded-full bg-purple-500/35 hover:bg-purple-500/50 border border-purple-400/45 text-purple-100 text-xs font-extrabold transition active:scale-95"
               >
                 🎰 Слот
               </button>
@@ -1440,6 +1503,8 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                         ['durakEnabled', 'Дурак'],
                         ['holdemEnabled', 'Покер'],
                         ['blackjackEnabled', '21'],
+                        ['spyEnabled', 'Шпигун'],
+                        ['crocodileEnabled', 'Крокодил'],
                         ['slotEnabled', 'Слот'],
                         ['trainingEnabled', 'Тренування'],
                         ['karasykBrandingEnabled', 'Напис «Карась»'],

@@ -19,6 +19,7 @@ import {
   Check,
   X,
   MessageCircle,
+  ScrollText,
 } from 'lucide-react';
 import type { Card, ChatMessage, GameAction, GameState, Player, Suit } from '../shared/types';
 import {
@@ -32,6 +33,7 @@ import { SuitPickerModal } from './SuitPickerModal';
 import { ScoreboardModal } from './ScoreboardModal';
 import { RulesModal } from './RulesModal';
 import { ChatDrawer } from './ChatDrawer';
+import { LogsModal } from './LogsModal';
 import {
   copyTextToClipboard,
   getRoomInviteUrl,
@@ -71,6 +73,7 @@ export const GameTable: React.FC<GameTableProps> = ({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showScoreboard, setShowScoreboard] = useState(false);
   const [showRules, setShowRules] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [showChat, setShowChat] = useState(false);
   const [lastReadChatLen, setLastReadChatLen] = useState(0);
@@ -260,6 +263,14 @@ export const GameTable: React.FC<GameTableProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setShowLogs(true)}
+            className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-amber-200 active:scale-95 transition"
+            title="Історія ходів"
+          >
+            <ScrollText className="w-4 h-4" />
+          </button>
           {roomCode && onSendChat && (
             <button
               type="button"
@@ -788,6 +799,7 @@ export const GameTable: React.FC<GameTableProps> = ({
           onClose={() => setShowRules(false)}
         />
       )}
+      {showLogs && <LogsModal logs={state.logs} onClose={() => setShowLogs(false)} />}
 
       {/* Room Chat Drawer */}
       {showChat && roomCode && onSendChat && (

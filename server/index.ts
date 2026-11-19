@@ -17,6 +17,16 @@ import {
   sanitizeHoldemStateForPlayer,
 } from '../src/shared/holdemEngine';
 import {
+  applySpyAction,
+  createSpyMatch,
+  sanitizeSpyStateForPlayer,
+} from '../src/shared/spyEngine';
+import {
+  applyCrocodileAction,
+  createCrocodileMatch,
+  sanitizeCrocodileStateForPlayer,
+} from '../src/shared/crocodileEngine';
+import {
   getFriendsState,
   getKnownPlayerName,
   registerPlayerName,
@@ -47,6 +57,7 @@ import type {
   BridgeMode,
   ChatMessage,
   ClientMessage,
+  CrocodileState,
   DurakMode,
   DurakState,
   GameState,
@@ -57,6 +68,7 @@ import type {
   RoomPlayerInfo,
   ServerConfig,
   ServerMessage,
+  SpyState,
 } from '../src/shared/types';
 
 interface Room {
@@ -72,6 +84,8 @@ interface Room {
   durakState: DurakState | null;
   holdemState: HoldemState | null;
   multiBlackjack: MultiBlackjackSession | null;
+  spyState: SpyState | null;
+  crocodileState: CrocodileState | null;
   holdemStartingChips: Record<string, number>;
   botTimer: ReturnType<typeof setTimeout> | null;
   turnTimer: ReturnType<typeof setTimeout> | null;
@@ -86,6 +100,8 @@ const serverConfig: ServerConfig = {
   durakEnabled: true,
   holdemEnabled: true,
   blackjackEnabled: true,
+  spyEnabled: true,
+  crocodileEnabled: true,
   trainingEnabled: true,
   karasykBrandingEnabled: true,
   eightSplitEnabled: true,
@@ -139,7 +155,9 @@ function getPublicRoomsList(): PublicRoomSummary[] {
         room.gameState !== null ||
         room.durakState !== null ||
         room.holdemState !== null ||
-        room.multiBlackjack !== null,
+        room.multiBlackjack !== null ||
+        room.spyState !== null ||
+        room.crocodileState !== null,
     });
   }
   return list;
@@ -165,7 +183,9 @@ function broadcastRoom(room: Room): void {
       room.gameState !== null ||
       room.durakState !== null ||
       room.holdemState !== null ||
-      room.multiBlackjack !== null,
+      room.multiBlackjack !== null ||
+      room.spyState !== null ||
+      room.crocodileState !== null,
   };
   for (const [, ws] of room.sockets) {
     send(ws, { type: 'ROOM_STATE', room: info });
@@ -528,6 +548,23 @@ function broadcastGameState(room: Room): void {
   }
 }
 
+function broadcastSpyState(room: Room): void {
+  if (!room.spyState) return;
+  for (const [playerId, ws] of room.sockets) {
+    send(ws, { type: 'SPY_STATE', state: sanitizeSpyStateForPlayer(room.spyState, playerId) });
+  }
+}
+
+function broadcastCrocodileState(room: Room): void {
+  if (!room.crocodileState) return;
+  for (const [playerId, ws] of room.sockets) {
+    send(ws, {
+      type: 'CROCO_STATE',
+      state: sanitizeCrocodileStateForPlayer(room.crocodileState, playerId),
+    });
+  }
+}
+
 const PORT = Number(process.env.PORT) || 8080;
 const DIST_DIR = resolve(process.cwd(), 'dist');
 const BOT_TOKEN = process.env.BOT_TOKEN?.trim();
@@ -625,7 +662,9 @@ function getAdminRoomsList(): AdminRoomInfo[] {
         room.gameState !== null ||
         room.durakState !== null ||
         room.holdemState !== null ||
-        room.multiBlackjack !== null,
+        room.multiBlackjack !== null ||
+        room.spyState !== null ||
+        room.crocodileState !== null,
       players: room.players,
     });
   }
@@ -692,6 +731,8 @@ wss.on('connection', (ws) => {
           durakState: null,
           holdemState: null,
           multiBlackjack: null,
+          spyState: null,
+          crocodileState: null,
           holdemStartingChips: {},
           botTimer: null,
           turnTimer: null,
@@ -713,7 +754,7 @@ wss.on('connection', (ws) => {
 
       case 'SET_ROOM_GAME': {
         const room = rooms.get(msg.code);
-        if (!room || room.gameState || room.durakState || room.holdemState || room.multiBlackjack) return;
+        if (!room || room.gameState || room.durakState || room.holdemState || room.multiBlackjack || room.spyState || room.crocodileState) return;
         const host = room.players.find((p) => p.id === msg.playerId && p.isHost);
         if (!host) return;
         if (msg.gameType === 'blackjack' && room.players.length > 4) {
@@ -781,11 +822,29 @@ wss.on('connection', (ws) => {
             };
             broadcastMultiBlackjackState(room);
           }
+          if (room.spyState) {
+            room.spyState = {
+              ...room.spyState,
+              players: room.spyState.players.map((p) =>
+                p.id === msg.playerId ? { ...p, connected: true } : p,
+              ),
+            };
+            broadcastSpyState(room);
+          }
+          if (room.crocodileState) {
+            room.crocodileState = {
+              ...room.crocodileState,
+              players: room.crocodileState.players.map((p) =>
+                p.id === msg.playerId ? { ...p, connected: true } : p,
+              ),
+            };
+            broadcastCrocodileState(room);
+          }
           broadcastRoom(room);
           return;
         }
 
-        if (room.durakState || room.holdemState || room.multiBlackjack) {
+        if (room.durakState || room.holdemState || room.multiBlackjack || room.spyState || room.crocodileState) {
           send(ws, { type: 'ERROR', message: 'Партія вже триває — зачекайте наступну.' });
           return;
         }
@@ -838,7 +897,7 @@ wss.on('connection', (ws) => {
 
       case 'ADD_BOT': {
         const room = rooms.get(msg.code);
-        if (!room || room.gameState || room.durakState || room.holdemState || room.multiBlackjack) return;
+        if (!room || room.gameState || room.durakState || room.holdemState || room.multiBlackjack || room.spyState || room.crocodileState) return;
         const host = room.players.find((p) => p.id === msg.playerId && p.isHost);
         if (!host) return;
         const maxPlayers = getRoomMaxPlayers(room.gameType);
@@ -860,7 +919,7 @@ wss.on('connection', (ws) => {
 
       case 'REMOVE_BOT': {
         const room = rooms.get(msg.code);
-        if (!room || room.gameState || room.durakState || room.holdemState || room.multiBlackjack) return;
+        if (!room || room.gameState || room.durakState || room.holdemState || room.multiBlackjack || room.spyState || room.crocodileState) return;
         const host = room.players.find((p) => p.id === msg.playerId && p.isHost);
         if (!host) return;
         room.players = room.players.filter((p) => !(p.id === msg.botId && p.isBot));
@@ -876,12 +935,21 @@ wss.on('connection', (ws) => {
           send(ws, { type: 'ERROR', message: 'Лише хост може почати гру.' });
           return;
         }
-        const minPlayers = room.gameType === 'blackjack' ? 1 : 2;
+        const minPlayers =
+          room.gameType === 'spy' ? 3 : room.gameType === 'blackjack' ? 1 : 2;
         if (room.players.length < minPlayers) {
           send(ws, { type: 'ERROR', message: `Потрібно мінімум ${minPlayers} гравці.` });
           return;
         }
-        if (room.gameType === 'blackjack') {
+        if (room.gameType === 'spy') {
+          room.spyState = createSpyMatch(room.players);
+          broadcastRoom(room);
+          broadcastSpyState(room);
+        } else if (room.gameType === 'crocodile') {
+          room.crocodileState = createCrocodileMatch(room.players);
+          broadcastRoom(room);
+          broadcastCrocodileState(room);
+        } else if (room.gameType === 'blackjack') {
           void createMultiBlackjackSession(room.players).then((session) => {
             room.multiBlackjack = session;
             broadcastRoom(room);
@@ -980,6 +1048,22 @@ wss.on('connection', (ws) => {
           void syncMultiBlackjackWallets(room);
           scheduleMultiBlackjackBotTurnIfNeeded(room);
         });
+        break;
+      }
+
+      case 'SPY_ACTION': {
+        const room = rooms.get(msg.code);
+        if (!room || !room.spyState) return;
+        room.spyState = applySpyAction(room.spyState, msg.action);
+        broadcastSpyState(room);
+        break;
+      }
+
+      case 'CROCO_ACTION': {
+        const room = rooms.get(msg.code);
+        if (!room || !room.crocodileState) return;
+        room.crocodileState = applyCrocodileAction(room.crocodileState, msg.action);
+        broadcastCrocodileState(room);
         break;
       }
 
@@ -1310,6 +1394,12 @@ wss.on('connection', (ws) => {
         if (typeof msg.config.blackjackEnabled === 'boolean') {
           serverConfig.blackjackEnabled = msg.config.blackjackEnabled;
         }
+        if (typeof msg.config.spyEnabled === 'boolean') {
+          serverConfig.spyEnabled = msg.config.spyEnabled;
+        }
+        if (typeof msg.config.crocodileEnabled === 'boolean') {
+          serverConfig.crocodileEnabled = msg.config.crocodileEnabled;
+        }
         if (typeof msg.config.trainingEnabled === 'boolean') {
           serverConfig.trainingEnabled = msg.config.trainingEnabled;
         }
@@ -1459,7 +1549,14 @@ function handleDisconnect(ws: WebSocket, explicitLeave: boolean): void {
 
   room.sockets.delete(meta.playerId);
 
-  const hasGame = Boolean(room.gameState || room.durakState || room.holdemState || room.multiBlackjack);
+  const hasGame = Boolean(
+    room.gameState ||
+      room.durakState ||
+      room.holdemState ||
+      room.multiBlackjack ||
+      room.spyState ||
+      room.crocodileState,
+  );
 
   if (explicitLeave && !hasGame) {
     room.players = room.players.filter((p) => p.id !== meta.playerId);

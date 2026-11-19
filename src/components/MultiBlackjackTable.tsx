@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { LogOut, MessageCircle, RotateCcw } from 'lucide-react';
+import { LogOut, MessageCircle, RotateCcw, ScrollText } from 'lucide-react';
 import type {
   Card,
   ChatMessage,
@@ -9,6 +9,7 @@ import type {
 } from '../shared/types';
 import { PlayingCard } from './PlayingCard';
 import { ChatDrawer } from './ChatDrawer';
+import { LogsModal } from './LogsModal';
 import { triggerHaptic } from '../utils/telegram';
 
 interface MultiBlackjackTableProps {
@@ -40,6 +41,7 @@ export const MultiBlackjackTable: React.FC<MultiBlackjackTableProps> = ({
 }) => {
   const [selectedBet, setSelectedBet] = useState(25);
   const [chatOpen, setChatOpen] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
   const [lastReadChatLen, setLastReadChatLen] = useState(0);
   const unreadChatCount = chatOpen
     ? 0
@@ -89,6 +91,14 @@ export const MultiBlackjackTable: React.FC<MultiBlackjackTableProps> = ({
           <span className="px-2.5 py-1 rounded-xl bg-amber-400/15 border border-amber-400/35 text-amber-200 text-xs font-extrabold">
             🪙 {myChips}
           </span>
+          <button
+            type="button"
+            onClick={() => setShowLogs(true)}
+            className="px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-amber-200 text-xs font-bold flex items-center"
+            title="Історія ходів"
+          >
+            <ScrollText className="w-4 h-4" />
+          </button>
           <button
             type="button"
             onClick={() => setChatOpen(true)}
@@ -299,6 +309,7 @@ export const MultiBlackjackTable: React.FC<MultiBlackjackTableProps> = ({
           onClose={() => setChatOpen(false)}
         />
       )}
+      {showLogs && <LogsModal logs={state.logs} onClose={() => setShowLogs(false)} />}
     </div>
   );
 };
