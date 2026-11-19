@@ -383,10 +383,16 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
           <div className="space-y-2">
             {/* Game mode inside room */}
             <div className="rounded-xl bg-white/5 border border-white/10 p-2.5 space-y-2">
-              <div className="flex items-center justify-between text-[11px] text-emerald-200/80">
+              <div
+                className={
+                  isHost
+                    ? 'space-y-1.5 text-[11px] text-emerald-200/80'
+                    : 'flex items-center justify-between text-[11px] text-emerald-200/80'
+                }
+              >
                 <span>Гра:</span>
                 {isHost ? (
-                  <div className="flex gap-1">
+                  <div className="flex flex-wrap gap-1.5">
                     {serverConfig.bridgeEnabled && (
                       <button
                         type="button"
