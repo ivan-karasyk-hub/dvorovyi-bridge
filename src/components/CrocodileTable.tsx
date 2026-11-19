@@ -44,6 +44,21 @@ export const CrocodileTable: React.FC<CrocodileTableProps> = ({
   const drawer = state.players[state.drawerIndex];
   const isDrawer = drawer?.id === myPlayerId;
 
+  // Prevent iOS/Telegram WebView vertical page scroll/swipe while drawing on canvas
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !isDrawer || state.phase !== 'drawing') return;
+    const stopTouch = (e: TouchEvent) => {
+      e.preventDefault();
+    };
+    canvas.addEventListener('touchstart', stopTouch, { passive: false });
+    canvas.addEventListener('touchmove', stopTouch, { passive: false });
+    return () => {
+      canvas.removeEventListener('touchstart', stopTouch);
+      canvas.removeEventListener('touchmove', stopTouch);
+    };
+  }, [isDrawer, state.phase]);
+
   // Redraw canvas whenever strokes change
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -83,6 +98,7 @@ export const CrocodileTable: React.FC<CrocodileTableProps> = ({
     if (!isDrawer || state.phase !== 'drawing') return;
     const pos = getNormCoords(e.clientX, e.clientY);
     if (!pos) return;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
     drawingRef.current = true;
     lastPosRef.current = pos;
   };

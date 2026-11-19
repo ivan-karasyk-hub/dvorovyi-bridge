@@ -2,6 +2,7 @@ interface TelegramWebApp {
   ready: () => void;
   expand: () => void;
   close: () => void;
+  disableVerticalSwipes?: () => void;
   initDataUnsafe?: {
     start_param?: string;
     user?: {
@@ -33,6 +34,7 @@ export function initTelegramApp(): void {
   try {
     tg.ready();
     tg.expand();
+    tg.disableVerticalSwipes?.();
   } catch {
     // Ignore outside Telegram
   }
