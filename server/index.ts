@@ -27,11 +27,20 @@ import {
   sanitizeCrocodileStateForPlayer,
 } from '../src/shared/crocodileEngine';
 import {
+  applyDebertsAction,
+  chooseDebertsBotAction,
+  createDebertsMatch,
+  sanitizeDebertsStateForPlayer,
+} from '../src/shared/debertsEngine';
+import {
+  exportFriendsSnapshot,
   getFriendsState,
   getKnownPlayerName,
+  importFriendsSnapshot,
   registerPlayerName,
   respondFriendRequest,
   sendFriendRequest,
+  type FriendsBackupSnapshot,
 } from './friends';
 import { executeSlotSpin } from './slot';
 import { actBlackjack, calculateBlackjackScore, dealBlackjack } from './blackjack';
@@ -45,11 +54,14 @@ import {
   addChips,
   claimDailyBonus,
   claimRescueBonus,
+  exportWalletsSnapshot,
   getLeaderboard,
   getNextDailyAt,
   getOrCreateWallet,
+  importWalletsSnapshot,
   isAdminPlayer,
   normalizeTargetPlayerId,
+  type WalletProfile,
 } from './wallet';
 import type {
   AdminOnlinePlayer,
@@ -58,6 +70,7 @@ import type {
   ChatMessage,
   ClientMessage,
   CrocodileState,
+  DebertsState,
   DurakMode,
   DurakState,
   GameState,
@@ -86,6 +99,7 @@ interface Room {
   multiBlackjack: MultiBlackjackSession | null;
   spyState: SpyState | null;
   crocodileState: CrocodileState | null;
+  debertsState: DebertsState | null;
   holdemStartingChips: Record<string, number>;
   botTimer: ReturnType<typeof setTimeout> | null;
   turnTimer: ReturnType<typeof setTimeout> | null;
@@ -102,6 +116,7 @@ const serverConfig: ServerConfig = {
   blackjackEnabled: true,
   spyEnabled: true,
   crocodileEnabled: true,
+  debertsEnabled: true,
   trainingEnabled: true,
   karasykBrandingEnabled: true,
   eightSplitEnabled: true,
@@ -132,7 +147,7 @@ function send(ws: WebSocket, msg: ServerMessage): void {
 }
 
 function getRoomMaxPlayers(gameType: GameType): number {
-  return gameType === 'blackjack' ? 4 : 6;
+  return gameType === 'blackjack' || gameType === 'deberts' ? 4 : 6;
 }
 
 function getPublicRoomsList(): PublicRoomSummary[] {
@@ -157,7 +172,8 @@ function getPublicRoomsList(): PublicRoomSummary[] {
         room.holdemState !== null ||
         room.multiBlackjack !== null ||
         room.spyState !== null ||
-        room.crocodileState !== null,
+        room.crocodileState !== null ||
+        room.debertsState !== null,
     });
   }
   return list;
@@ -185,7 +201,8 @@ function broadcastRoom(room: Room): void {
       room.holdemState !== null ||
       room.multiBlackjack !== null ||
       room.spyState !== null ||
-      room.crocodileState !== null,
+      room.crocodileState !== null ||
+      room.debertsState !== null,
   };
   for (const [, ws] of room.sockets) {
     send(ws, { type: 'ROOM_STATE', room: info });
@@ -565,6 +582,89 @@ function broadcastCrocodileState(room: Room): void {
   }
 }
 
+function broadcastDebertsState(room: Room): void {
+  if (!room.debertsState) return;
+  for (const [playerId, ws] of room.sockets) {
+    send(ws, {
+      type: 'DEBERTS_STATE',
+      state: sanitizeDebertsStateForPlayer(room.debertsState, playerId),
+    });
+  }
+}
+
+function scheduleDebertsBotTurnIfNeeded(room: Room): void {
+  clearBotTimer(room);
+  const st = room.debertsState;
+  if (!st || (st.phase !== 'bidding' && st.phase !== 'playing') || room.sockets.size === 0) return;
+  const active = st.players[st.currentPlayerIndex];
+  if (!active?.isBot) return;
+
+  room.botTimer = setTimeout(() => {
+    room.botTimer = null;
+    if (!room.debertsState || room.sockets.size === 0) return;
+    const action = chooseDebertsBotAction(room.debertsState);
+    if (!action) return;
+    room.debertsState = applyDebertsAction(room.debertsState, action);
+    broadcastDebertsState(room);
+    scheduleDebertsBotTurnIfNeeded(room);
+  }, BOT_DELAY_MS);
+}
+
+interface BackupPayload {
+  version?: number;
+  exportedAt?: number;
+  wallets?: WalletProfile[];
+  friends?: FriendsBackupSnapshot;
+  bannedIds?: string[];
+  serverConfig?: Partial<ServerConfig>;
+  friendChats?: Array<[string, ChatMessage[]]>;
+}
+
+async function buildBackupPayload(): Promise<BackupPayload> {
+  const [wallets, friends] = await Promise.all([
+    exportWalletsSnapshot(),
+    exportFriendsSnapshot(),
+  ]);
+  return {
+    version: 1,
+    exportedAt: Date.now(),
+    wallets,
+    friends,
+    bannedIds: Array.from(bannedPlayerIds),
+    serverConfig,
+    friendChats: Array.from(friendChats.entries()),
+  };
+}
+
+async function applyBackupPayload(
+  parsed: BackupPayload,
+  onlyIfMissing = false,
+): Promise<number> {
+  const restoredCount = Array.isArray(parsed.wallets)
+    ? await importWalletsSnapshot(parsed.wallets, onlyIfMissing)
+    : 0;
+  if (parsed.friends) {
+    await importFriendsSnapshot(parsed.friends);
+  }
+  if (Array.isArray(parsed.bannedIds)) {
+    bannedPlayerIds.clear();
+    for (const bid of parsed.bannedIds) {
+      if (typeof bid === 'string') bannedPlayerIds.add(bid);
+    }
+  }
+  if (parsed.serverConfig && typeof parsed.serverConfig === 'object') {
+    Object.assign(serverConfig, parsed.serverConfig);
+  }
+  if (Array.isArray(parsed.friendChats)) {
+    for (const [k, msgs] of parsed.friendChats) {
+      if (typeof k === 'string' && Array.isArray(msgs)) {
+        friendChats.set(k, msgs.slice(-60));
+      }
+    }
+  }
+  return restoredCount;
+}
+
 const PORT = Number(process.env.PORT) || 8080;
 const DIST_DIR = resolve(process.cwd(), 'dist');
 const BOT_TOKEN = process.env.BOT_TOKEN?.trim();
@@ -664,7 +764,8 @@ function getAdminRoomsList(): AdminRoomInfo[] {
         room.holdemState !== null ||
         room.multiBlackjack !== null ||
         room.spyState !== null ||
-        room.crocodileState !== null,
+        room.crocodileState !== null ||
+        room.debertsState !== null,
       players: room.players,
     });
   }
@@ -733,6 +834,7 @@ wss.on('connection', (ws) => {
           multiBlackjack: null,
           spyState: null,
           crocodileState: null,
+          debertsState: null,
           holdemStartingChips: {},
           botTimer: null,
           turnTimer: null,
@@ -754,7 +856,7 @@ wss.on('connection', (ws) => {
 
       case 'SET_ROOM_GAME': {
         const room = rooms.get(msg.code);
-        if (!room || room.gameState || room.durakState || room.holdemState || room.multiBlackjack || room.spyState || room.crocodileState) return;
+        if (!room || room.gameState || room.durakState || room.holdemState || room.multiBlackjack || room.spyState || room.crocodileState || room.debertsState) return;
         const host = room.players.find((p) => p.id === msg.playerId && p.isHost);
         if (!host) return;
         if (msg.gameType === 'blackjack' && room.players.length > 4) {
@@ -840,11 +942,20 @@ wss.on('connection', (ws) => {
             };
             broadcastCrocodileState(room);
           }
+          if (room.debertsState) {
+            room.debertsState = {
+              ...room.debertsState,
+              players: room.debertsState.players.map((p) =>
+                p.id === msg.playerId ? { ...p, connected: true } : p,
+              ),
+            };
+            broadcastDebertsState(room);
+          }
           broadcastRoom(room);
           return;
         }
 
-        if (room.durakState || room.holdemState || room.multiBlackjack || room.spyState || room.crocodileState) {
+        if (room.durakState || room.holdemState || room.multiBlackjack || room.spyState || room.crocodileState || room.debertsState) {
           send(ws, { type: 'ERROR', message: 'Партія вже триває — зачекайте наступну.' });
           return;
         }
@@ -897,7 +1008,7 @@ wss.on('connection', (ws) => {
 
       case 'ADD_BOT': {
         const room = rooms.get(msg.code);
-        if (!room || room.gameState || room.durakState || room.holdemState || room.multiBlackjack || room.spyState || room.crocodileState) return;
+        if (!room || room.gameState || room.durakState || room.holdemState || room.multiBlackjack || room.spyState || room.crocodileState || room.debertsState) return;
         const host = room.players.find((p) => p.id === msg.playerId && p.isHost);
         if (!host) return;
         const maxPlayers = getRoomMaxPlayers(room.gameType);
@@ -919,7 +1030,7 @@ wss.on('connection', (ws) => {
 
       case 'REMOVE_BOT': {
         const room = rooms.get(msg.code);
-        if (!room || room.gameState || room.durakState || room.holdemState || room.multiBlackjack || room.spyState || room.crocodileState) return;
+        if (!room || room.gameState || room.durakState || room.holdemState || room.multiBlackjack || room.spyState || room.crocodileState || room.debertsState) return;
         const host = room.players.find((p) => p.id === msg.playerId && p.isHost);
         if (!host) return;
         room.players = room.players.filter((p) => !(p.id === msg.botId && p.isBot));
@@ -949,6 +1060,11 @@ wss.on('connection', (ws) => {
           room.crocodileState = createCrocodileMatch(room.players);
           broadcastRoom(room);
           broadcastCrocodileState(room);
+        } else if (room.gameType === 'deberts') {
+          room.debertsState = createDebertsMatch(room.players);
+          broadcastRoom(room);
+          broadcastDebertsState(room);
+          scheduleDebertsBotTurnIfNeeded(room);
         } else if (room.gameType === 'blackjack') {
           void createMultiBlackjackSession(room.players).then((session) => {
             room.multiBlackjack = session;
@@ -1064,6 +1180,15 @@ wss.on('connection', (ws) => {
         if (!room || !room.crocodileState) return;
         room.crocodileState = applyCrocodileAction(room.crocodileState, msg.action);
         broadcastCrocodileState(room);
+        break;
+      }
+
+      case 'DEBERTS_ACTION': {
+        const room = rooms.get(msg.code);
+        if (!room || !room.debertsState) return;
+        room.debertsState = applyDebertsAction(room.debertsState, msg.action);
+        broadcastDebertsState(room);
+        scheduleDebertsBotTurnIfNeeded(room);
         break;
       }
 
@@ -1400,6 +1525,9 @@ wss.on('connection', (ws) => {
         if (typeof msg.config.crocodileEnabled === 'boolean') {
           serverConfig.crocodileEnabled = msg.config.crocodileEnabled;
         }
+        if (typeof msg.config.debertsEnabled === 'boolean') {
+          serverConfig.debertsEnabled = msg.config.debertsEnabled;
+        }
         if (typeof msg.config.trainingEnabled === 'boolean') {
           serverConfig.trainingEnabled = msg.config.trainingEnabled;
         }
@@ -1437,6 +1565,53 @@ wss.on('connection', (ws) => {
           players: onlinePlayers,
           config: serverConfig,
         });
+        break;
+      }
+
+      case 'ADMIN_EXPORT_BACKUP': {
+        if (!isAdminPlayer(msg.adminPlayerId)) return;
+        void buildBackupPayload().then((payload) => {
+          send(ws, { type: 'ADMIN_BACKUP_DATA', backupJson: JSON.stringify(payload, null, 2) });
+        });
+        break;
+      }
+
+      case 'ADMIN_IMPORT_BACKUP': {
+        if (!isAdminPlayer(msg.adminPlayerId)) return;
+        void (async () => {
+          try {
+            const parsed = JSON.parse(msg.backupJson) as BackupPayload;
+            const restoredCount = await applyBackupPayload(parsed);
+            for (const clientWs of wss.clients) {
+              send(clientWs, { type: 'SERVER_CONFIG', config: serverConfig });
+            }
+            for (const [clientWs, pid] of socketPlayerIds.entries()) {
+              const w = await getOrCreateWallet(pid, getKnownPlayerName(pid));
+              send(clientWs, {
+                type: 'WALLET_UPDATE',
+                wallet: {
+                  ...w,
+                  isAdmin: isAdminPlayer(pid),
+                  nextDailyAt: getNextDailyAt(pid),
+                },
+              });
+              pushFriendsStateTo(pid);
+            }
+            sendAdminTelegramWallets(ws);
+            send(ws, {
+              type: 'ADMIN_ONLINE',
+              onlineCount: getAdminOnlinePlayers().length,
+              players: getAdminOnlinePlayers(),
+              config: serverConfig,
+            });
+            send(ws, {
+              type: 'ADMIN_NOTICE',
+              message: `✅ Бекап відновлено! Відновлено гаманців: ${restoredCount}.`,
+            });
+          } catch {
+            send(ws, { type: 'ERROR', message: 'Невірний формат файлу бекапу JSON.' });
+          }
+        })();
         break;
       }
 
@@ -1555,7 +1730,8 @@ function handleDisconnect(ws: WebSocket, explicitLeave: boolean): void {
       room.holdemState ||
       room.multiBlackjack ||
       room.spyState ||
-      room.crocodileState,
+      room.crocodileState ||
+      room.debertsState,
   );
 
   if (explicitLeave && !hasGame) {

@@ -106,7 +106,14 @@ export type GameAction =
   | { type: 'START_NEXT_ROUND'; playerId: string }
   | { type: 'REMATCH'; playerId: string };
 
-export type GameType = 'bridge' | 'durak' | 'holdem' | 'blackjack' | 'spy' | 'crocodile';
+export type GameType =
+  | 'bridge'
+  | 'durak'
+  | 'holdem'
+  | 'blackjack'
+  | 'spy'
+  | 'crocodile'
+  | 'deberts';
 export type BridgeMode = 'kalynivskyi' | 'classic';
 export type DurakMode = 'podkidnoy' | 'perevodnoy';
 
@@ -207,6 +214,7 @@ export interface ServerConfig {
   blackjackEnabled: boolean;
   spyEnabled: boolean;
   crocodileEnabled: boolean;
+  debertsEnabled: boolean;
   trainingEnabled: boolean;
   karasykBrandingEnabled: boolean;
   eightSplitEnabled: boolean;
@@ -336,6 +344,46 @@ export type CrocodileAction =
   | { type: 'CROCO_SKIP_WORD'; playerId: string }
   | { type: 'CROCO_NEW_ROUND'; playerId: string };
 
+export interface DebertsPlayer {
+  id: string;
+  name: string;
+  hand: Card[];
+  roundPoints: number;
+  totalScore: number;
+  connected: boolean;
+  isHost?: boolean;
+  isBot?: boolean;
+}
+
+export interface DebertsTrickCard {
+  playerId: string;
+  card: Card;
+}
+
+export interface DebertsState {
+  round: number;
+  players: DebertsPlayer[];
+  dealerIndex: number;
+  currentPlayerIndex: number;
+  proposedTrumpCard: Card | null;
+  trumpSuit: Suit;
+  callerId: string | null;
+  bidRound: 1 | 2;
+  trick: DebertsTrickCard[];
+  phase: 'bidding' | 'playing' | 'round_over' | 'match_over';
+  bellaDeclaredBy: string | null;
+  winnerId: string | null;
+  logs: GameLogEntry[];
+}
+
+export type DebertsAction =
+  | { type: 'DEBERTS_ACCEPT_TRUMP'; playerId: string }
+  | { type: 'DEBERTS_CHOOSE_TRUMP'; playerId: string; suit: Suit }
+  | { type: 'DEBERTS_PASS_BID'; playerId: string }
+  | { type: 'DEBERTS_PLAY_CARD'; playerId: string; cardId: string }
+  | { type: 'DEBERTS_NEXT_ROUND'; playerId: string }
+  | { type: 'DEBERTS_REMATCH'; playerId: string };
+
 export interface AdminOnlinePlayer {
   playerId: string;
   name: string;
@@ -464,6 +512,7 @@ export type ClientMessage =
   | { type: 'MULTI_BJ_ACTION'; code: string; action: MultiBlackjackAction }
   | { type: 'SPY_ACTION'; code: string; action: SpyAction }
   | { type: 'CROCO_ACTION'; code: string; action: CrocodileAction }
+  | { type: 'DEBERTS_ACTION'; code: string; action: DebertsAction }
   | { type: 'GET_WALLET'; playerId: string; playerName: string }
   | { type: 'CLAIM_BONUS'; playerId: string; playerName: string }
   | { type: 'CLAIM_DAILY_BONUS'; playerId: string; playerName: string }
@@ -488,6 +537,8 @@ export type ClientMessage =
   | { type: 'ADMIN_GIFT_ALL'; adminPlayerId: string; amount: number }
   | { type: 'ADMIN_SET_BAN'; adminPlayerId: string; targetId: string; banned: boolean }
   | { type: 'ADMIN_UPDATE_CONFIG'; adminPlayerId: string; config: Partial<ServerConfig> }
+  | { type: 'ADMIN_EXPORT_BACKUP'; adminPlayerId: string }
+  | { type: 'ADMIN_IMPORT_BACKUP'; adminPlayerId: string; backupJson: string }
   | { type: 'LEAVE_ROOM'; code: string; playerId: string };
 
 export type ServerMessage =
@@ -502,6 +553,7 @@ export type ServerMessage =
   | { type: 'CROCO_STATE'; state: CrocodileState }
   | { type: 'CROCO_STROKE'; stroke: CrocodileStroke }
   | { type: 'CROCO_CLEAR' }
+  | { type: 'DEBERTS_STATE'; state: DebertsState }
   | { type: 'WALLET_UPDATE'; wallet: WalletSummary }
   | { type: 'DAILY_BONUS_RESULT'; amount: number; nextDailyAt: number }
   | { type: 'SERVER_CONFIG'; config: ServerConfig }
@@ -516,5 +568,6 @@ export type ServerMessage =
   | { type: 'ADMIN_WALLETS'; entries: WalletSummary[] }
   | { type: 'ADMIN_ROOMS'; rooms: AdminRoomInfo[] }
   | { type: 'ADMIN_ONLINE'; onlineCount: number; players: AdminOnlinePlayer[]; config: ServerConfig }
+  | { type: 'ADMIN_BACKUP_DATA'; backupJson: string }
   | { type: 'ADMIN_NOTICE'; message: string }
   | { type: 'ERROR'; message: string };

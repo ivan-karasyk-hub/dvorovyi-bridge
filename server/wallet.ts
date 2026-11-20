@@ -109,9 +109,12 @@ export async function getOrCreateWallet(
           memoryStore.set(playerId, created);
           return created;
         }
+        console.error('[Supabase] wallets insert failed:', insertRes.status, await insertRes.text());
+      } else {
+        console.error('[Supabase] wallets select failed:', res.status, await res.text());
       }
-    } catch {
-      // Fallback to memory store on transient network error
+    } catch (err) {
+      console.error('[Supabase] wallets request error:', err);
     }
   }
 
@@ -240,4 +243,86 @@ export async function getLeaderboard(limit = 10): Promise<WalletProfile[]> {
   return Array.from(memoryStore.values())
     .sort((a, b) => b.chips - a.chips)
     .slice(0, limit);
+}
+
+export async function exportWalletsSnapshot(): Promise<WalletProfile[]> {
+  const merged = new Map<string, WalletProfile>(memoryStore);
+  if (hasSupabase()) {
+    try {
+      const res = await supabaseFetch('wallets?select=*&limit=2000');
+      if (res.ok) {
+        const rows = (await res.json()) as Array<{
+          player_id: string;
+          name: string;
+          chips: number;
+          wins: number;
+          updated_at: string;
+        }>;
+        for (const r of rows) {
+          merged.set(r.player_id, {
+            playerId: r.player_id,
+            name: r.name,
+            chips: r.chips,
+            wins: r.wins,
+            updatedAt: Date.parse(r.updated_at) || Date.now(),
+          });
+        }
+      }
+    } catch {
+      // Use memoryStore
+    }
+  }
+  return Array.from(merged.values());
+}
+
+export async function importWalletsSnapshot(
+  profiles: WalletProfile[],
+  onlyIfMissing = false,
+): Promise<number> {
+  const existingIds = new Set<string>();
+  if (onlyIfMissing && hasSupabase()) {
+    try {
+      const res = await supabaseFetch('wallets?select=player_id&limit=2000');
+      if (res.ok) {
+        const rows = (await res.json()) as Array<{ player_id: string }>;
+        for (const r of rows) existingIds.add(r.player_id);
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  let count = 0;
+  for (const p of profiles) {
+    if (!p || typeof p.playerId !== 'string' || !Number.isFinite(p.chips)) continue;
+    if (onlyIfMissing && existingIds.has(p.playerId)) continue;
+    const clean: WalletProfile = {
+      playerId: p.playerId,
+      name: typeof p.name === 'string' && p.name.trim() ? p.name.trim() : 'Гравець',
+      chips: Math.max(0, Math.trunc(p.chips)),
+      wins: Math.max(0, Math.trunc(p.wins || 0)),
+      updatedAt: Date.now(),
+    };
+    memoryStore.set(clean.playerId, clean);
+    count++;
+
+    if (hasSupabase()) {
+      try {
+        await supabaseFetch('wallets', {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates' },
+          body: JSON.stringify({
+            player_id: clean.playerId,
+            name: clean.name,
+            chips: clean.chips,
+            wins: clean.wins,
+            updated_at: new Date().toISOString(),
+          }),
+        });
+      } catch {
+        // Already stored in memoryStore
+      }
+    }
+  }
+  return count;
 }

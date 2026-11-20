@@ -71,6 +71,9 @@ interface LobbyScreenProps {
   onAdminGiftAll: (amount: number) => void;
   onAdminSetBan: (targetId: string, banned: boolean) => void;
   onAdminUpdateConfig: (config: Partial<ServerConfig>) => void;
+  adminBackupJson: string | null;
+  onAdminExportBackup: () => void;
+  onAdminImportBackup: (backupJson: string) => void;
   onAdminCloseRoom: (code: string) => void;
   onAdminKickPlayer: (code: string, targetId: string) => void;
   onAdminBroadcast: (message: string) => void;
@@ -125,6 +128,9 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   onAdminGiftAll,
   onAdminSetBan,
   onAdminUpdateConfig,
+  adminBackupJson,
+  onAdminExportBackup,
+  onAdminImportBackup,
   onAdminCloseRoom,
   onAdminKickPlayer,
   onAdminBroadcast,
@@ -166,6 +172,8 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
     }
   }, [showRoomChat, roomChatMessages.length]);
   const [friendTargetId, setFriendTargetId] = useState('');
+  const [restoreText, setRestoreText] = useState('');
+  const [backupCopied, setBackupCopied] = useState(false);
   const [invitedFriendIds, setInvitedFriendIds] = useState<string[]>([]);
   const [showAdmin, setShowAdmin] = useState(false);
   const [adminTab, setAdminTab] = useState<'chips' | 'rooms' | 'notice'>('chips');
@@ -471,6 +479,19 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                         🎨 Крокодил
                       </button>
                     )}
+                    {serverConfig.debertsEnabled && (
+                      <button
+                        type="button"
+                        onClick={() => onSetRoomGame('deberts', room.durakMode)}
+                        className={`px-2.5 py-1 rounded-lg font-bold transition ${
+                          room.gameType === 'deberts'
+                            ? 'bg-amber-400 text-slate-950'
+                            : 'bg-white/10 text-white/75'
+                        }`}
+                      >
+                        🂡 Деберц
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <span className="font-bold text-amber-300">
@@ -484,7 +505,9 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                             ? 'Шпигун'
                             : room.gameType === 'crocodile'
                               ? 'Крокодил'
-                              : `${serverConfig.karasykBrandingEnabled ? 'Карасьовий Брідж' : 'Брідж'} (${(room.bridgeMode ?? 'kalynivskyi') === 'classic' ? 'Дефолт' : 'Калинівський'})`}
+                              : room.gameType === 'deberts'
+                                ? 'Деберц'
+                                : `${serverConfig.karasykBrandingEnabled ? 'Карасьовий Брідж' : 'Брідж'} (${(room.bridgeMode ?? 'kalynivskyi') === 'classic' ? 'Дефолт' : 'Калинівський'})`}
                   </span>
                 )}
               </div>
@@ -551,9 +574,9 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             <div className="text-xs text-emerald-200/80 flex items-center justify-between">
               <span className="flex items-center gap-1.5">
                 <Users className="w-3.5 h-3.5" />
-                Гравці ({room.players.length}/{room.gameType === 'blackjack' ? 4 : 6}):
+                Гравці ({room.players.length}/{room.gameType === 'blackjack' || room.gameType === 'deberts' ? 4 : 6}):
               </span>
-              {isHost && room.players.length < (room.gameType === 'blackjack' ? 4 : 6) && (
+              {isHost && room.players.length < (room.gameType === 'blackjack' || room.gameType === 'deberts' ? 4 : 6) && (
                 <button
                   type="button"
                   onClick={onAddBot}
@@ -805,7 +828,9 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                     ? 'Шпигун • 3–6 гравців'
                     : selectedGameType === 'crocodile'
                       ? 'Крокодил (малювалка) • 2–6 гравців'
-                      : `Брідж (${selectedBridgeMode === 'classic' ? 'Дефолт' : 'Калинівський'}) • 2–6 гравців`}
+                      : selectedGameType === 'deberts'
+                        ? 'Деберц • 2–4 гравці'
+                        : `Брідж (${selectedBridgeMode === 'classic' ? 'Дефолт' : 'Калинівський'}) • 2–6 гравців`}
           </p>
           <div className="flex items-center justify-center flex-wrap gap-2 pt-1">
             {serverConfig.bridgeEnabled && (
@@ -884,6 +909,19 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                 }`}
               >
                 🎨 Крокодил
+              </button>
+            )}
+            {serverConfig.debertsEnabled && (
+              <button
+                type="button"
+                onClick={() => onSelectGameType('deberts')}
+                className={`px-3.5 py-2 rounded-full text-xs font-extrabold transition ${
+                  selectedGameType === 'deberts'
+                    ? 'bg-amber-400 text-slate-950'
+                    : 'bg-white/10 text-white/75 hover:bg-white/20'
+                }`}
+              >
+                🂡 Деберц
               </button>
             )}
             {connected && serverConfig.slotEnabled && (
@@ -1511,6 +1549,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                         ['blackjackEnabled', '21'],
                         ['spyEnabled', 'Шпигун'],
                         ['crocodileEnabled', 'Крокодил'],
+                        ['debertsEnabled', 'Деберц'],
                         ['slotEnabled', 'Слот'],
                         ['trainingEnabled', 'Тренування'],
                         ['karasykBrandingEnabled', 'Напис «Карась»'],
@@ -1609,6 +1648,93 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                   >
                     📢 Надіслати всім онлайн
                   </button>
+                </div>
+
+                {/* Backup & Restore */}
+                <div className="rounded-xl bg-white/5 border border-amber-400/30 p-2.5 space-y-2 text-xs">
+                  <div className="text-[11px] font-bold text-amber-300">
+                    💾 Резервна копія (фішки, друзі, бани, налаштування)
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onAdminExportBackup}
+                    className="w-full py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs"
+                  >
+                    📥 Створити бекап
+                  </button>
+
+                  {adminBackupJson && (
+                    <div className="space-y-1.5">
+                      <div className="flex gap-1.5">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await copyTextToClipboard(adminBackupJson);
+                            setBackupCopied(true);
+                            window.setTimeout(() => setBackupCopied(false), 2000);
+                          }}
+                          className="flex-1 py-1.5 rounded-lg bg-emerald-500/80 hover:bg-emerald-500 text-slate-950 font-bold text-[11px]"
+                        >
+                          {backupCopied ? '✅ Скопійовано!' : '📋 Копіювати JSON'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const blob = new Blob([adminBackupJson], { type: 'application/json' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `bridge-backup-${new Date().toISOString().slice(0, 10)}.json`;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                          }}
+                          className="flex-1 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white font-bold text-[11px]"
+                        >
+                          ⬇️ Скачати .json
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="pt-1 border-t border-white/10 space-y-1.5">
+                    <textarea
+                      rows={2}
+                      value={restoreText}
+                      onChange={(e) => setRestoreText(e.target.value)}
+                      placeholder="Вставте JSON бекапу сюди для відновлення..."
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-black/30 border border-white/15 text-[11px] text-white placeholder-white/40 focus:outline-none focus:border-amber-400"
+                    />
+                    <div className="flex gap-1.5">
+                      <label className="flex-1 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold text-[11px] text-center cursor-pointer">
+                        📂 Обрати .json
+                        <input
+                          type="file"
+                          accept=".json,application/json"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            file.text().then((txt) => {
+                              setRestoreText(txt);
+                              onAdminImportBackup(txt);
+                            });
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        disabled={!restoreText.trim()}
+                        onClick={() => {
+                          onAdminImportBackup(restoreText.trim());
+                          setRestoreText('');
+                        }}
+                        className="flex-1 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-slate-950 font-extrabold text-[11px]"
+                      >
+                        📤 Відновити
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

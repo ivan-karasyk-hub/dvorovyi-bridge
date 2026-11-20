@@ -152,3 +152,94 @@ export async function respondFriendRequest(
     friendsMap.get(fromId)!.add(playerId);
   }
 }
+
+export interface FriendsBackupSnapshot {
+  pairs: Array<[string, string]>;
+  requests: Array<[string, FriendRequestEntry[]]>;
+  names: Array<[string, string]>;
+}
+
+export async function exportFriendsSnapshot(): Promise<FriendsBackupSnapshot> {
+  const pairSet = new Set<string>();
+  const pairs: Array<[string, string]> = [];
+  for (const [a, set] of friendsMap.entries()) {
+    for (const b of set) {
+      const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+      if (!pairSet.has(key)) {
+        pairSet.add(key);
+        pairs.push(a < b ? [a, b] : [b, a]);
+      }
+    }
+  }
+
+  if (hasSupabase()) {
+    try {
+      const fRes = await supabaseFetch('friends?select=*&limit=5000');
+      if (fRes.ok) {
+        const rows = (await fRes.json()) as Array<{
+          player_a: string;
+          player_b: string;
+          name_a?: string;
+          name_b?: string;
+        }>;
+        for (const r of rows) {
+          if (r.name_a) knownNames.set(r.player_a, r.name_a);
+          if (r.name_b) knownNames.set(r.player_b, r.name_b);
+          const key = r.player_a < r.player_b ? `${r.player_a}|${r.player_b}` : `${r.player_b}|${r.player_a}`;
+          if (!pairSet.has(key)) {
+            pairSet.add(key);
+            pairs.push([r.player_a, r.player_b]);
+          }
+        }
+      }
+    } catch {
+      // Fallback to in-memory
+    }
+  }
+
+  return {
+    pairs,
+    requests: Array.from(requestsMap.entries()),
+    names: Array.from(knownNames.entries()),
+  };
+}
+
+export async function importFriendsSnapshot(snapshot: FriendsBackupSnapshot): Promise<void> {
+  if (!snapshot || typeof snapshot !== 'object') return;
+  if (Array.isArray(snapshot.names)) {
+    for (const [id, name] of snapshot.names) {
+      if (typeof id === 'string' && typeof name === 'string') knownNames.set(id, name);
+    }
+  }
+  if (Array.isArray(snapshot.requests)) {
+    for (const [toId, list] of snapshot.requests) {
+      if (typeof toId === 'string' && Array.isArray(list)) requestsMap.set(toId, list);
+    }
+  }
+  if (Array.isArray(snapshot.pairs)) {
+    for (const [a, b] of snapshot.pairs) {
+      if (typeof a !== 'string' || typeof b !== 'string') continue;
+      if (!friendsMap.has(a)) friendsMap.set(a, new Set());
+      if (!friendsMap.has(b)) friendsMap.set(b, new Set());
+      friendsMap.get(a)!.add(b);
+      friendsMap.get(b)!.add(a);
+      if (hasSupabase()) {
+        try {
+          const [pa, pb] = a < b ? [a, b] : [b, a];
+          await supabaseFetch('friends', {
+            method: 'POST',
+            headers: { Prefer: 'resolution=ignore-duplicates' },
+            body: JSON.stringify({
+              player_a: pa,
+              player_b: pb,
+              name_a: knownNames.get(pa) || pa,
+              name_b: knownNames.get(pb) || pb,
+            }),
+          });
+        } catch {
+          // Ignore
+        }
+      }
+    }
+  }
+}

@@ -10,6 +10,8 @@ import type {
   ClientMessage,
   CrocodileAction,
   CrocodileState,
+  DebertsAction,
+  DebertsState,
   DurakAction,
   DurakMode,
   DurakState,
@@ -46,6 +48,7 @@ import { SlotModal } from './components/SlotModal';
 import { MultiBlackjackTable } from './components/MultiBlackjackTable';
 import { SpyTable } from './components/SpyTable';
 import { CrocodileTable } from './components/CrocodileTable';
+import { DebertsTable } from './components/DebertsTable';
 import { ChatDrawer } from './components/ChatDrawer';
 
 function getWsUrl(): string {
@@ -74,6 +77,7 @@ export const App: React.FC = () => {
     useState<MultiBlackjackState | null>(null);
   const [onlineSpyState, setOnlineSpyState] = useState<SpyState | null>(null);
   const [onlineCrocodileState, setOnlineCrocodileState] = useState<CrocodileState | null>(null);
+  const [onlineDebertsState, setOnlineDebertsState] = useState<DebertsState | null>(null);
   const [sandboxState, setSandboxState] = useState<GameState | null>(null);
   const [sandboxDurakState, setSandboxDurakState] = useState<DurakState | null>(null);
   const [sandboxHoldemState, setSandboxHoldemState] = useState<HoldemState | null>(null);
@@ -85,6 +89,7 @@ export const App: React.FC = () => {
   const [adminWallets, setAdminWallets] = useState<WalletSummary[]>([]);
   const [adminRooms, setAdminRooms] = useState<AdminRoomInfo[]>([]);
   const [adminOnlinePlayers, setAdminOnlinePlayers] = useState<AdminOnlinePlayer[]>([]);
+  const [adminBackupJson, setAdminBackupJson] = useState<string | null>(null);
   const [serverConfig, setServerConfig] = useState<ServerConfig>({
     slotEnabled: true,
     bridgeEnabled: true,
@@ -93,6 +98,7 @@ export const App: React.FC = () => {
     blackjackEnabled: true,
     spyEnabled: true,
     crocodileEnabled: true,
+    debertsEnabled: true,
     trainingEnabled: true,
     karasykBrandingEnabled: true,
     eightSplitEnabled: true,
@@ -191,6 +197,8 @@ export const App: React.FC = () => {
             setOnlineSpyState(msg.state);
           } else if (msg.type === 'CROCO_STATE') {
             setOnlineCrocodileState(msg.state);
+          } else if (msg.type === 'DEBERTS_STATE') {
+            setOnlineDebertsState(msg.state);
           } else if (msg.type === 'WALLET_UPDATE') {
             setWallet(msg.wallet);
           } else if (msg.type === 'LEADERBOARD') {
@@ -202,6 +210,8 @@ export const App: React.FC = () => {
           } else if (msg.type === 'ADMIN_ONLINE') {
             setAdminOnlinePlayers(msg.players);
             setServerConfig(msg.config);
+          } else if (msg.type === 'ADMIN_BACKUP_DATA') {
+            setAdminBackupJson(msg.backupJson);
           } else if (msg.type === 'SERVER_CONFIG') {
             setServerConfig(msg.config);
             if (!msg.config.slotEnabled) setShowSlot(false);
@@ -249,6 +259,7 @@ export const App: React.FC = () => {
             setOnlineMultiBlackjackState(null);
             setOnlineSpyState(null);
             setOnlineCrocodileState(null);
+            setOnlineDebertsState(null);
             setError(msg.reason);
           } else if (msg.type === 'ADMIN_NOTICE') {
             setAdminNotice(msg.message);
@@ -350,6 +361,7 @@ export const App: React.FC = () => {
     setOnlineMultiBlackjackState(null);
     setOnlineSpyState(null);
     setOnlineCrocodileState(null);
+    setOnlineDebertsState(null);
     setSandboxState(null);
     setSandboxDurakState(null);
     setSandboxHoldemState(null);
@@ -476,6 +488,27 @@ export const App: React.FC = () => {
             setSandboxState((prev) => (prev ? applyAction(prev, action) : null))
           }
           onLeave={() => setSandboxState(null)}
+        />
+      </>
+    );
+  }
+
+  if (onlineDebertsState && room) {
+    return (
+      <>
+        {inviteBanner}
+        <DebertsTable
+          state={onlineDebertsState}
+          myPlayerId={playerId}
+          roomCode={room.code}
+          chatMessages={roomChatMessages}
+          onSendChat={(text) =>
+            sendWs({ type: 'SEND_ROOM_CHAT', code: room.code, playerId, playerName, text })
+          }
+          onAction={(action: DebertsAction) =>
+            sendWs({ type: 'DEBERTS_ACTION', code: room.code, action })
+          }
+          onLeave={handleLeaveRoom}
         />
       </>
     );
@@ -655,6 +688,13 @@ export const App: React.FC = () => {
         }
         onAdminUpdateConfig={(config) =>
           sendWs({ type: 'ADMIN_UPDATE_CONFIG', adminPlayerId: playerId, config })
+        }
+        adminBackupJson={adminBackupJson}
+        onAdminExportBackup={() =>
+          sendWs({ type: 'ADMIN_EXPORT_BACKUP', adminPlayerId: playerId })
+        }
+        onAdminImportBackup={(backupJson) =>
+          sendWs({ type: 'ADMIN_IMPORT_BACKUP', adminPlayerId: playerId, backupJson })
         }
         onAdminCloseRoom={(code) =>
           sendWs({ type: 'ADMIN_CLOSE_ROOM', adminPlayerId: playerId, code })
