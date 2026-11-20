@@ -250,9 +250,9 @@ export const GameTable: React.FC<GameTableProps> = ({
                   НАВЧАННЯ
                 </span>
               )}
-              {(state.reshuffleCount ?? 0) >= 2 && (
+              {(state.reshuffleCount ?? 0) >= 1 && (
                 <span className="px-1.5 py-0.5 rounded bg-rose-500/30 border border-rose-400/40 text-rose-200 text-[10px] font-extrabold">
-                  {state.reshuffleCount}x очки
+                  {1 + (state.reshuffleCount ?? 0)}x очки
                 </span>
               )}
             </div>

@@ -370,6 +370,13 @@ describe('gameEngine', () => {
     });
     expect(afterReshuffle2.players[1].score).toBe(30);
 
+    // Reshuffle multiplier resets to 0 (1x) when a new round starts
+    const nextRoundAfterReshuffle = applyAction(afterReshuffle2, {
+      type: 'START_NEXT_ROUND',
+      playerId: 'p1',
+    });
+    expect(nextRoundAfterReshuffle.reshuffleCount).toBe(0);
+
     // Elimination in 3-player game: 1 eliminated -> round_over, next round deals only to 2 alive
     const elimState = makeTestState({
       players: [
